@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<meta name="referrer" content="no-referrer">
+<!-- Only Google sign-in and Google Drive may be contacted, so your figures can't be sent anywhere else -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://accounts.google.com/gsi/client; connect-src https://www.googleapis.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; style-src 'unsafe-inline' https://accounts.google.com/gsi/style; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Family Budget</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2; --surface-1: #fcfcfb; --border: #e2e1dc;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #85847f;
+  --grid: #e8e7e2;
+  --series-1: #2a78d6; --series-2: #eb6834;
+  --good: #1a7f37; --warn: #b26b00; --bad: #c62828;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #111110; --surface-1: #1a1a19; --border: #2e2d2a;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8d8c85;
+    --grid: #2a2927;
+    --series-1: #3987e5; --series-2: #d95926;
+    --good: #4cc26b; --warn: #e0a030; --bad: #ef6b6b;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text-primary); -webkit-text-size-adjust: 100%; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px 16px; background: var(--surface-1); border-bottom: 1px solid var(--border); }
+header h1 { font-size: 17px; margin: 0; }
+#stamp { font-size: 12px; color: var(--text-muted); }
+#stamp.stale { color: var(--warn); }
+.grow { flex: 1; min-width: 0; }
+.icon { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; background: none; color: var(--text-secondary); font: inherit; font-size: 20px; cursor: pointer; }
+.icon:active { background: var(--bg); }
+.icon.busy svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#menu { position: absolute; right: 10px; top: calc(54px + env(safe-area-inset-top)); background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); padding: 6px; z-index: 4; min-width: 230px; }
+#menu button { display: block; width: 100%; text-align: left; padding: 12px; border: 0; background: none; color: inherit; font: inherit; border-radius: 8px; }
+#menu button:active { background: var(--bg); }
+main { padding: 12px 12px 8px; max-width: 640px; margin: 0 auto; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+.card h2 { font-size: 16px; margin: 0 0 8px; }
+.big { font-size: 32px; font-weight: 650; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-muted); }
+.small { font-size: 13px; }
+.pos { color: var(--good); }
+.neg { color: var(--bad); }
+.warn { color: var(--warn); }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.grp { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--text-secondary); padding: 14px 6px 6px; }
+.list { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 4px; }
+.list > * + * { border-top: 1px solid var(--border); }
+button.cat { display: flex; width: 100%; align-items: center; gap: 12px; padding: 11px 14px; min-height: 56px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+button.cat:active { background: var(--bg); }
+.cname { font-weight: 500; }
+.pill { margin-left: auto; padding: 3px 10px; border-radius: 999px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--bg); color: var(--text-secondary); }
+.pill.ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+.pill.neg { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+.bar { display: block; height: 4px; border-radius: 2px; background: var(--grid); margin-top: 6px; overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 2px; background: var(--series-1); }
+.bar.over > i { background: var(--bad); }
+.detail { padding: 2px 14px 10px; background: var(--bg); }
+.detail .tx { padding: 8px 0; }
+.tx { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+.tx .amt { margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+.sub { display: block; font-size: 13px; color: var(--text-muted); overflow-wrap: anywhere; }
+.day { font-size: 12px; font-weight: 600; color: var(--text-secondary); padding: 14px 6px 6px; }
+.chip { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--text-primary); margin: 3px 4px 0 0; }
+.chip.odd { background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+input[type=search], input[type=password] { width: 100%; font: inherit; font-size: 16px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); color: inherit; }
+.btn { display: block; width: 100%; font: inherit; font-weight: 600; padding: 12px 16px; margin-top: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-1); color: inherit; cursor: pointer; }
+.btn.primary { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+.btn.inline { display: inline-block; width: auto; margin: 0; padding: 8px 14px; font-weight: 500; }
+nav#tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; background: var(--surface-1); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); }
+nav#tabs button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 8px; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; }
+nav#tabs button[aria-current="page"] { color: var(--series-1); font-weight: 600; }
+nav#tabs svg { width: 24px; height: 24px; }
+#toast { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 5; max-width: 600px; margin: 0 auto; padding: 12px 14px; border-radius: 12px; background: var(--text-primary); color: var(--bg); font-size: 14px; }
+svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+svg.chart text { font-size: 11px; fill: var(--text-muted); }
+.hidden { display: none !important; }
+:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="grow"><h1>Family Budget</h1><div id="stamp"></div></div>
+  <button class="icon hidden" id="refresh" aria-label="Get the latest" title="Get the latest"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+  <button class="icon" id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false">⋯</button>
+  <div id="menu" class="hidden" role="menu">
+    <button role="menuitem" data-m="file">Open a summary file…</button>
+    <button role="menuitem" data-m="forget">Forget this phone</button>
+  </div>
+</header>
+<main id="view"></main>
+<nav id="tabs" class="hidden" aria-label="Sections">
+  <button data-t="budget"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>Budget</button>
+  <button data-t="bills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Bills</button>
+  <button data-t="spending"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h9"/></svg>Spending</button>
+  <button data-t="worth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 18l5-6 4 3 7-8"/><path d="M15 7h5v5"/></svg>Net worth</button>
+</nav>
+<div id="toast" class="hidden" role="status"></div>
+<input type="file" id="file" accept=".json,application/json" hidden>
+<script>
+'use strict';
+// Family Budget on your phone. Read-only: it shows the summary your PC saves next to budget-data.json (budget-phone.json),
+// which is locked with your family passphrase. Nothing on this page can change your budget.
+//
+// GOING LIVE (not done yet):
+//  1. Google Cloud console (free): make a project, turn on the Google Drive API, set up the OAuth consent screen
+//     (External, Testing; add both your Google accounts as test users; scope .../auth/drive.readonly), and create an
+//     OAuth client ID of type "Web application" with this page's web address as an authorised JavaScript origin.
+//  2. Paste the client ID below, and put this file on a web host with HTTPS (e.g. GitHub Pages).
+//  3. Share the Family folder in Google Drive with your wife's Google account.
+//  4. On each phone: open the page, sign in with Google, type the family passphrase once, then "Add to Home Screen".
+const GOOGLE = {
+  clientId: '536884277222-k1ol7ud3rit85puram38ej40vf9kncfs.apps.googleusercontent.com', // e.g. '1234567890-abc123.apps.googleusercontent.com'. Blank keeps Google switched off.
+  fileName: 'budget-phone.json',
+  scope: 'https://www.googleapis.com/auth/drive.readonly', // read-only: this page can never change anything in your Drive
+};
+
+// ---------- Helpers ----------
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const round2 = n => Math.round(n * 100) / 100 || 0;
+const fmt2 = n => { n = round2(n); return (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-NZ', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+const fmt = n => { n = Math.round(n) || 0; return (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-NZ'); };
+const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5);
+const dateOf = d => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd); };
+const dayLabel = d => dateOf(d).toLocaleDateString('en-NZ', {weekday: 'short', day: 'numeric', month: 'short'});
+const shortDate = d => dateOf(d).toLocaleDateString('en-NZ', {day: 'numeric', month: 'short'});
+const monthLabel = m => dateOf(m + '-01').toLocaleDateString('en-NZ', {month: 'long', year: 'numeric'});
+const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+const FLAGS = {red: '#e5484d', orange: '#ef6c1a', yellow: '#ffc53d', green: '#2b9a66', blue: '#0b84f3', purple: '#8e4ec6'};
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.add('hidden'), 4000); }
+function ago(ms) {
+  const min = Math.round((Date.now() - ms) / 60000);
+  return min < 1 ? 'just now' : min < 60 ? `${min} min ago` : min < 1440 ? `${Math.round(min / 60)} h ago` : `${plural(Math.round(min / 1440), 'day')} ago`;
+}
+
+// ---------- Unlocking: the same steps as the PC app (keep the two in step) ----------
+const cleanPass = p => String(p || '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase(); // capitals and extra spaces don't matter
+const fromB64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+async function keyFrom(pass, salt, iterations) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(cleanPass(pass)), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name: 'PBKDF2', hash: 'SHA-256', salt, iterations}, base, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
+}
+async function unseal(env, key) {
+  const s = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name: 'AES-GCM', iv: fromB64(env.iv)}, key, fromB64(env.data))));
+  if (!s || s.kind !== 'family-budget-phone' || s.v !== 1) throw new Error('not a summary');
+  return s;
+}
+const isEnvelope = e => !!e && e.kind === 'family-budget-phone' && e.v === 1 && !!e.kdf && e.kdf.name === 'PBKDF2' && typeof e.kdf.salt === 'string'
+  && e.kdf.iterations >= 1000 && typeof e.iv === 'string' && typeof e.data === 'string';
+
+// ---------- This phone's storage: the locked summary, and the key if you chose to remember it ----------
+function dbDo(mode, f) {
+  return new Promise((res, rej) => {
+    const open = indexedDB.open('budget-phone', 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('kv');
+    open.onerror = () => rej(open.error);
+    open.onsuccess = () => {
+      const db = open.result, tx = db.transaction('kv', mode), r = f(tx.objectStore('kv'));
+      tx.oncomplete = () => { db.close(); res(r && r.result); };
+      tx.onerror = tx.onabort = () => { db.close(); rej(tx.error); };
+    };
+  });
+}
+const dbGet = k => dbDo('readonly', s => s.get(k)).catch(() => undefined);
+const dbSet = (k, v) => dbDo('readwrite', s => s.put(v, k)).catch(() => {});
+const dbClear = () => dbDo('readwrite', s => s.clear()).catch(() => {});
+
+// ---------- Where the summary comes from ----------
+let S = null, env = null, tab = 'budget', openCat = null, showEmpty = false, query = '', shown = 150;
+// A locked summary arrived (from Google Drive, this computer, or a file): keep it on the phone, then unlock it
+async function useEnvelope(e, source) {
+  if (!isEnvelope(e)) throw new Error("That isn't a phone summary from the budget app.");
+  env = e;
+  await dbSet('env', e); await dbSet('source', source);
+  if (!(await unlockQuietly(e))) askPass();
+}
+async function unlockQuietly(e) {
+  const key = await dbGet('key:' + e.kdf.salt);
+  if (!key) return false;
+  try { show(await unseal(e, key)); return true; } catch { return false; }
+}
+async function fromFile(file) {
+  let e = null;
+  try { e = JSON.parse(await file.text()); } catch {}
+  await useEnvelope(e, 'file');
+}
+// On the PC: use the summary file the budget app already saves (only when this page is opened from the same folder)
+async function pcHandle() {
+  try {
+    if (!indexedDB.databases || !(await indexedDB.databases()).some(d => d.name === 'budget-app')) return null;
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('budget-app'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const h = db.objectStoreNames.contains('kv') ? await new Promise(res => { const r = db.transaction('kv').objectStore('kv').get('phoneFile'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }) : null;
+    db.close();
+    return h && h.getFile ? h : null;
+  } catch { return null; }
+}
+async function fromPC() {
+  const h = await pcHandle();
+  if (!h) throw new Error("The budget app on this computer hasn't saved a phone summary yet.");
+  if (await h.queryPermission({mode: 'read'}) !== 'granted' && await h.requestPermission({mode: 'read'}) !== 'granted') throw new Error('No permission to read the summary file.');
+  let e = null;
+  try { e = JSON.parse(await (await h.getFile()).text()); } catch {}
+  await useEnvelope(e, 'pc');
+}
+// Google Drive: sign in with Google, find budget-phone.json in your Drive (or shared with you), and download it
+const drive = {token: null, until: 0};
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (window.google && google.accounts && google.accounts.oauth2) return res();
+    const s = document.createElement('script');
+    s.src = src; s.async = true; s.onload = () => res(); s.onerror = () => rej(new Error("Couldn't reach Google. Are you online?"));
+    document.head.append(s);
+  });
+}
+async function driveToken() {
+  if (drive.token && Date.now() < drive.until) return drive.token;
+  await loadScript('https://accounts.google.com/gsi/client');
+  return new Promise((res, rej) => {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE.clientId, scope: GOOGLE.scope,
+      callback: r => {
+        if (!r || r.error || !r.access_token) return rej(new Error('Google sign-in didn\'t work' + (r && r.error ? ` (${r.error})` : '') + '.'));
+        drive.token = r.access_token; drive.until = Date.now() + (Number(r.expires_in) || 3600) * 1000 - 60000; res(drive.token);
+      },
+      error_callback: e => rej(new Error(e && e.type === 'popup_closed' ? 'Sign-in was closed before it finished.' : 'Google sign-in didn\'t work' + (e && e.type ? ` (${e.type})` : '') + '.')),
+    });
+    client.requestAccessToken({prompt: ''});
+  });
+}
+async function driveGet(url) {
+  const r = await fetch(url, {headers: {Authorization: 'Bearer ' + await driveToken()}});
+  if (r.status === 401) { drive.token = null; drive.until = 0; }
+  if (!r.ok) { const e = new Error(`Google Drive said no (${r.status}).`); e.status = r.status; throw e; }
+  return r;
+}
+async function fromGoogle() {
+  const api = 'https://www.googleapis.com/drive/v3/files';
+  let id = await dbGet('driveId');
+  for (let tries = 0; tries < 2; tries++) {
+    if (!id) {
+      const q = new URLSearchParams({q: `name = '${GOOGLE.fileName.replace(/'/g, "\\'")}' and trashed = false`, orderBy: 'modifiedTime desc', pageSize: '10',
+        fields: 'files(id,name,modifiedTime)', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true'});
+      const list = await (await driveGet(`${api}?${q}`)).json();
+      if (!list.files || !list.files.length) throw new Error(`Couldn't find ${GOOGLE.fileName} in your Google Drive. Has the Family folder been shared with you?`);
+      id = list.files[0].id; await dbSet('driveId', id);
+    }
+    try {
+      let e = null;
+      const r = await driveGet(`${api}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`);
+      try { e = await r.json(); } catch {}
+      return await useEnvelope(e, 'google');
+    } catch (err) {
+      if (err.status === 404 && !tries) { id = null; await dbSet('driveId', null); continue; } // the file was replaced: look for it again
+      throw err;
+    }
+  }
+}
+async function getLatest(source) {
+  const b = $('#refresh'); b.classList.add('busy');
+  try {
+    if (source === 'google') await fromGoogle();
+    else if (source === 'pc') await fromPC();
+    else { $('#file').click(); return; }
+    if (S) toast('Got the latest summary (made ' + ago(S.made) + ').');
+  } catch (e) { toast(e.message || 'Something went wrong.'); }
+  finally { b.classList.remove('busy'); }
+}
+
+// ---------- Screens ----------
+function view(html) { $('#view').innerHTML = html; }
+function setChrome(on) {
+  $('#tabs').classList.toggle('hidden', !on); $('#refresh').classList.toggle('hidden', !on);
+  if (!on) $('#stamp').textContent = '';
+}
+async function showWelcome() {
+  S = null; setChrome(false);
+  const pc = await pcHandle();
+  view(`<div class="card"><h2>See your budget on this phone</h2>
+    <p class="muted small" style="margin-top:0">This shows the summary your PC saves: what's left in each budget category, upcoming bills, recent spending and net worth. It's read-only, and locked with your family passphrase.</p>
+    ${GOOGLE.clientId ? '<button class="btn primary" data-go="google">Sign in with Google</button>' : ''}
+    ${pc ? '<button class="btn primary" data-go="pc">Load the summary from this computer</button>' : ''}
+    <button class="btn" data-go="file">Open the summary file…</button>
+    ${GOOGLE.clientId ? '' : `<p class="muted small" style="margin-bottom:0">Google Drive isn't connected yet, so for now this works on the computer, with the summary file (${esc(GOOGLE.fileName)}).</p>`}</div>`);
+}
+function askPass(msg = '') {
+  S = null; setChrome(false);
+  view(`<div class="card"><h2>Unlock your budget</h2>
+    <p class="muted small" style="margin-top:0">Type the family passphrase chosen on the PC. Capitals and spaces don't matter.</p>
+    <form id="passForm" autocomplete="off">
+      <input type="password" id="pass" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Family passphrase" aria-label="Family passphrase">
+      <label class="row small" style="margin:12px 2px 2px;flex-wrap:nowrap"><input type="checkbox" id="remember" checked> Remember on this phone, so I don't have to type it again</label>
+      <p id="passMsg" class="small warn" role="alert">${esc(msg)}</p>
+      <button class="btn primary">Unlock</button>
+    </form></div>`);
+  $('#passForm').onsubmit = async ev => {
+    ev.preventDefault();
+    const pass = $('#pass').value, note = $('#passMsg');
+    if (!pass.trim()) return;
+    note.className = 'small muted'; note.textContent = 'Unlocking…';
+    try {
+      const key = await keyFrom(pass, fromB64(env.kdf.salt), env.kdf.iterations), s = await unseal(env, key);
+      if ($('#remember').checked) await dbSet('key:' + env.kdf.salt, key);
+      show(s);
+    } catch {
+      note.className = 'small warn'; note.textContent = "That passphrase didn't work. Check it with whoever set it up on the PC.";
+      $('#pass').select();
+    }
+  };
+  $('#pass').focus();
+}
+function show(s) {
+  S = s; setChrome(true);
+  const st = $('#stamp'), age = Date.now() - S.made;
+  st.textContent = `Updated ${ago(S.made)}${S.upTo ? ' · bank data to ' + shortDate(S.upTo) : ''}`;
+  st.classList.toggle('stale', age > 2 * 864e5);
+  st.title = age > 2 * 864e5 ? 'Open the budget app on the PC (and load new statements) to update this.' : '';
+  render();
+}
+function render() {
+  if (!S) return;
+  for (const b of document.querySelectorAll('#tabs button')) { if (b.dataset.t === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); }
+  view({budget: budgetView, bills: billsView, spending: spendingView, worth: worthView}[tab]());
+  if (tab === 'spending') drawTx();
+}
+
+// Budget: Ready to Assign, and what's left in each category
+function budgetView() {
+  const b = S.budget;
+  if (!b) return `<div class="card"><h2>Budget</h2><p class="muted" style="margin:0">The budget isn't set up yet. Set it up on the PC (Budget tab).</p></div>`;
+  const cats = b.groups.flatMap(g => g.cats), over = cats.filter(c => c.available < -0.005), overBy = over.reduce((s, c) => s - c.available, 0);
+  const used = cats.filter(c => c.assigned || c.spent || c.available || c.target);
+  let h = `<div class="card"><div class="muted small">Ready to Assign · ${monthLabel(b.month)}</div><div class="big ${b.rta < -0.005 ? 'neg' : ''}">${fmt2(b.rta)}</div>
+    <div class="small muted">${b.rta > 0.005 ? 'still to give a job (on the PC)' : b.rta < -0.005 ? 'More is assigned than you have. Fix it on the PC.' : 'Every dollar has a job.'}</div></div>`;
+  if (over.length) h += `<div class="card" style="border-left:4px solid var(--bad)"><b>${plural(over.length, 'category', 'categories')} overspent by ${fmt2(overBy)}.</b> <span class="small muted">Cover ${over.length === 1 ? 'it' : 'them'} on the PC.</span></div>`;
+  for (const g of b.groups) {
+    const list = g.cats.filter(c => showEmpty || used.includes(c));
+    if (!list.length) continue;
+    h += `<div class="grp"><span>${esc(g.name)}</span><span>${fmt2(g.cats.reduce((s, c) => s + c.available, 0))}</span></div><div class="list">`;
+    for (const c of list) {
+      const room = c.spent + c.available, part = c.available < -0.005 ? 1 : room > 0.005 ? Math.min(1, Math.max(0, c.spent / room)) : 0;
+      h += `<button class="cat" data-cat="${esc(c.name)}" aria-expanded="${openCat === c.name}"><span class="grow"><span class="cname">${esc(c.name)}</span>
+        <span class="sub">Spent ${fmt2(c.spent)}${c.target ? ' · ' + esc(c.target) : ''}${c.need > 0.005 ? ` · <span class="warn">${fmt2(c.need)} more needed</span>` : ''}</span>
+        ${room > 0.005 || c.available < -0.005 ? `<span class="bar ${c.available < -0.005 ? 'over' : ''}"><i style="width:${(part * 100).toFixed(1)}%"></i></span>` : ''}</span>
+        <span class="pill ${c.available < -0.005 ? 'neg' : c.available > 0.005 ? 'ok' : ''}">${fmt2(c.available)}</span></button>`;
+      if (openCat === c.name) h += catDetail(c.name, b.month);
+    }
+    h += '</div>';
+  }
+  const empty = cats.length - used.length;
+  if (empty) h += `<p style="text-align:center"><button class="btn inline" data-empty>${showEmpty ? 'Hide' : 'Show'} ${plural(empty, 'empty category', 'empty categories')}</button></p>`;
+  return h;
+}
+function catDetail(name, month) { // this month's spending in one category (split parts count in each of their categories)
+  const rows = S.txns.filter(t => t.d.startsWith(month)).flatMap(t => (t.s ? t.s.filter(p => p[0] === name).map(p => ({...t, a: p[1]})) : t.c === name ? [t] : []));
+  return `<div class="detail">${rows.length ? rows.map(t => `<div class="tx"><span class="grow">${esc(t.p)}<span class="sub">${esc(dayLabel(t.d))}${t.n ? ' · ' + esc(t.n) : ''}</span></span><span class="amt ${t.a > 0 ? 'pos' : ''}">${fmt2(t.a)}</span></div>`).join('')
+    : `<p class="small muted" style="margin:8px 0 4px">Nothing in ${esc(name)} yet this month.</p>`}</div>`;
+}
+
+// Bills: the cash-flow forecast's low point, and what's due in the next 30 days
+function billsView() {
+  const today = todayStr();
+  let h = '';
+  const f = S.forecast;
+  if (f) {
+    const cls = f.low.bal < 0 ? 'neg' : f.low.bal < 200 ? 'warn' : '';
+    h += `<div class="card"><h2>Your balance, next 6 weeks</h2>
+      <p class="small" style="margin-top:0"><b class="${cls}">${f.low.bal < 0 ? '✕' : f.low.bal < 200 ? '!' : '✓'} Lowest about ${fmt2(f.low.bal)} on ${esc(dayLabel(f.low.date))}</b><span class="muted">, if spending carries on as usual (about ${fmt2(f.daily * 7)} a week).</span></p>
+      ${lineChart(f.pts, f.low)}</div>`;
+  }
+  h += `<div class="card"><h2>Bills in the next 30 days</h2>`;
+  if (!S.bills.length) h += `<p class="muted" style="margin:0">None due.</p>`;
+  else h += `<div class="list" style="margin:0 -16px -14px;border:0;border-radius:0 0 14px 14px;border-top:1px solid var(--border)">` + S.bills.map(b => {
+    const n = daysBetween(today, b.date);
+    const when = n < 0 ? `${plural(-n, 'day')} ago` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`;
+    const st = b.short === null || b.amount > 0 ? '' : b.short > 0.005 ? ` · <span class="warn">! ${fmt2(b.short)} short</span>` : ' · <span class="pos">✓ covered</span>';
+    return `<div class="tx"><span class="grow"><b>${esc(b.name)}</b><span class="sub">${esc(dayLabel(b.date))} (${when}) · ${esc(b.rhythm)}${b.cat ? ' · ' + esc(b.cat) : ''}${st}</span></span>
+      <span class="amt ${b.amount > 0 ? 'pos' : ''}">${b.about ? '<span class="small muted" style="font-weight:400">about </span>' : ''}${fmt2(b.amount)}</span></div>`;
+  }).join('') + '</div>';
+  return h + '</div>';
+}
+
+// Spending: search, and the last 3 months of transactions by day
+function spendingView() {
+  const m = S.months.at(-1);
+  return `<input type="search" id="q" placeholder="Search payee, category, note or amount" aria-label="Search transactions" value="${esc(query)}" autocomplete="off" enterkeyhint="search">
+    ${m ? `<div class="card" style="margin-top:12px"><div class="muted small">${monthLabel(m.m)}${S.upTo && m.m === S.upTo.slice(0, 7) ? ' so far' : ''}</div>
+      <div class="row" style="gap:20px;margin-top:2px"><span>In <b class="pos">${fmt2(m.income)}</b></span><span>Out <b>${fmt2(m.spend)}</b></span></div></div>` : ''}
+    <div id="txList"></div>`;
+}
+function amountMatch(q) { // "101" finds $101.00 to $101.99, "29.99" finds exactly that, ">100" and "<20" compare sizes (as on the PC)
+  const m = /^\s*([<>])?\s*-?\s*\$?\s*(\d+(?:\.\d{1,2})?)\s*$/.exec(q.replace(/,/g, ''));
+  if (!m) return null;
+  const v = parseFloat(m[2]);
+  return m[1] === '>' ? t => Math.abs(t.a) > v : m[1] === '<' ? t => Math.abs(t.a) < v : m[2].includes('.') ? t => Math.abs(Math.abs(t.a) - v) < 0.005 : t => Math.floor(Math.abs(t.a) + 1e-9) === v;
+}
+function drawTx() {
+  const q = query.trim().toLowerCase(), am = amountMatch(q), words = q.split(/\s+/).filter(Boolean);
+  const hit = t => !q || (am ? am(t) : words.every(w => [t.p, t.c, t.n, ...(t.g || []), ...(t.s || []).map(p => p[0])].join(' ').toLowerCase().includes(w)));
+  const list = S.txns.filter(hit);
+  let h = '', day = '';
+  for (const t of list.slice(0, shown)) {
+    if (t.d !== day) { if (day) h += '</div>'; day = t.d; h += `<div class="day">${esc(dayLabel(t.d))}</div><div class="list">`; }
+    const cat = t.s ? 'Split: ' + t.s.map(p => p[0]).join(', ') : t.c;
+    h += `<div class="tx"><span class="grow">${t.f && FLAGS[t.f] ? `<span class="dot" style="background:${FLAGS[t.f]}" title="${esc(t.f)} flag"></span>` : ''}${esc(t.p)}
+      <span class="sub">${esc(cat)}${t.n ? ' · ' + esc(t.n) : ''}</span>${t.o || t.g ? `<span>${t.o ? `<span class="chip odd">! ${esc(t.o)}</span>` : ''}${(t.g || []).map(g => `<span class="chip">${esc(g)}</span>`).join('')}</span>` : ''}</span>
+      <span class="amt ${t.a > 0 ? 'pos' : ''}">${fmt2(t.a)}</span></div>`;
+  }
+  if (day) h += '</div>';
+  if (!list.length) h = `<p class="muted" style="text-align:center;margin:24px 0">${q ? 'Nothing matches.' : 'No transactions in the last 3 months.'}</p>`;
+  if (list.length > shown) h += `<p style="text-align:center"><button class="btn inline" data-more>Show more (${list.length - shown} left)</button></p>`;
+  $('#txList').innerHTML = h;
+}
+
+// Net worth: the latest update, and how it's changed
+function worthView() {
+  const W = S.worth;
+  if (!W || !W.length) return `<div class="card"><h2>Net worth</h2><p class="muted" style="margin:0">No net worth updates yet. Add one on the PC (Net worth tab).</p></div>`;
+  const last = W.at(-1), prev = W.at(-2), ch = prev ? last.net - prev.net : null;
+  return `<div class="card"><div class="muted small">Net worth · ${esc(dayLabel(last.date))}</div><div class="big ${last.net < 0 ? 'neg' : ''}">${fmt(last.net)}</div>
+    ${ch === null ? '' : `<div class="small ${ch >= 0 ? 'pos' : 'neg'}">${ch >= 0 ? '▲' : '▼'} ${fmt(Math.abs(ch))} since ${esc(dayLabel(prev.date))}</div>`}
+    <div class="row" style="gap:20px;margin-top:10px"><span class="small">You own <b>${fmt(last.own)}</b></span><span class="small">You owe <b>${fmt(last.owe)}</b></span></div></div>`
+    + (W.length > 1 ? `<div class="card"><h2>Over time</h2>${lineChart(W.map(w => [w.date, w.net]))}</div>` : '');
+}
+
+// A small line chart: one 2px line, a $0 line when it dips below zero, and the lowest point marked
+function lineChart(pts, low) {
+  const W = 340, H = 150, L = 4, R = 4, T = 18, B = 22;
+  const vals = pts.map(p => p[1]), lo = Math.min(0, ...vals), hi = Math.max(...vals, lo + 1);
+  const x = i => L + (pts.length < 2 ? 0 : i / (pts.length - 1)) * (W - L - R), y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  const line = pts.map((p, i) => `${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+  const li = low ? pts.findIndex(p => p[0] === low.date) : -1;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`From ${fmt(vals[0])} on ${shortDate(pts[0][0])} to ${fmt(vals.at(-1))} on ${shortDate(pts.at(-1)[0])}${low ? `, lowest ${fmt(low.bal)} on ${shortDate(low.date)}` : ''}`)}">
+    <line x1="${L}" x2="${W - R}" y1="${y(hi).toFixed(1)}" y2="${y(hi).toFixed(1)}" stroke="var(--grid)"/>
+    <line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="${lo < 0 ? 'var(--text-muted)' : 'var(--grid)'}"/>
+    <text x="${L}" y="${(y(hi) - 5).toFixed(1)}">${esc(fmt(hi))}</text>
+    <polyline points="${line}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${li >= 0 ? `<circle cx="${x(li).toFixed(1)}" cy="${y(low.bal).toFixed(1)}" r="4.5" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2"/>` : ''}
+    <text x="${L}" y="${H - 5}">${esc(shortDate(pts[0][0]))}</text><text x="${W - R}" y="${H - 5}" text-anchor="end">${esc(shortDate(pts.at(-1)[0]))}</text>
+  </svg>`;
+}
+
+// ---------- Taps ----------
+$('#view').addEventListener('click', async e => {
+  const go = e.target.closest('[data-go]'), cat = e.target.closest('[data-cat]');
+  if (go) { try { await {google: fromGoogle, pc: fromPC, file: () => $('#file').click()}[go.dataset.go](); } catch (err) { toast(err.message || 'Something went wrong.'); } return; }
+  if (cat) { openCat = openCat === cat.dataset.cat ? null : cat.dataset.cat; render(); const b = document.querySelector(`[data-cat="${CSS.escape(cat.dataset.cat)}"]`); if (b) b.focus({preventScroll: true}); return; }
+  if (e.target.closest('[data-empty]')) { showEmpty = !showEmpty; render(); return; }
+  if (e.target.closest('[data-more]')) { shown += 150; drawTx(); }
+});
+$('#view').addEventListener('input', e => { if (e.target.id === 'q') { query = e.target.value; shown = 150; drawTx(); } });
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b && S) { tab = b.dataset.t; render(); scrollTo(0, 0); } });
+$('#file').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (f) try { await fromFile(f); } catch (err) { toast(err.message || "Couldn't read that file."); }
+});
+$('#refresh').onclick = async () => getLatest(await dbGet('source'));
+$('#menuBtn').onclick = () => { const m = $('#menu'), open = m.classList.toggle('hidden'); $('#menuBtn').setAttribute('aria-expanded', String(!open)); };
+document.addEventListener('click', e => { if (!e.target.closest('#menu, #menuBtn')) { $('#menu').classList.add('hidden'); $('#menuBtn').setAttribute('aria-expanded', 'false'); } });
+$('#menu').addEventListener('click', async e => {
+  const b = e.target.closest('[data-m]');
+  if (!b) return;
+  $('#menu').classList.add('hidden');
+  if (b.dataset.m === 'file') $('#file').click();
+  else if (confirm('Forget this phone? The summary and the remembered passphrase are removed from this phone. Nothing changes on the PC.')) { await dbClear(); env = null; drive.token = null; showWelcome(); }
+});
+
+// ---------- Start: show the copy kept on this phone straight away (you can get the latest with ↻) ----------
+(async () => {
+  env = await dbGet('env');
+  if (!isEnvelope(env)) return showWelcome();
+  if (!(await unlockQuietly(env))) askPass();
+})();
+</script>
+</body>
+</html>
