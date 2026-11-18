@@ -3526,7 +3526,9 @@ function weekLeftHTML() { // the same headline number as the Overview: what's le
 function bankBalHTML() {
   const d = dataEnd(), bal = calcBalance(d), many = accounts.length > 1;
   const lines = many ? accounts.map(a => `<span class="accsplit"><span>${esc(/^account\b/i.test(a.name) ? 'Bank account' : a.name)}</span><span>${fmt2(acctBalance(a.id, d))}</span></span>`).join('') : '';
-  return `<div class="bankbal" style="font-size:13px" data-tip="${esc(`Your ${many ? 'accounts\' balance, all added together' : 'account balance'}, going by your bank data up to ${dayLabel(d)}.`)}"><div class="muted">Bank balance · ${shortDay(d)}</div><div class="amt" style="font-size:22px${bal < 0 ? ';color:var(--bad)' : ''}">${fmt2(bal)}</div>${lines ? `<div class="sub">${lines}</div>` : ''}</div>`;
+  let of = null; if (FAMILY) { try { of = offsetForecast(forecastData(allBills(todayStr()), true, todayStr(), null, {topups: FAMILY})); } catch (e) { of = null; } }
+  const sub = lines + (of ? `<span class="accsplit muted" title="What's left to draw in the offset. It's not part of the bank balance above."><span>Offset available</span><span>${fmt2(of.now)}</span></span>` : ''); // not added into the bank balance
+  return `<div class="bankbal" style="font-size:13px" data-tip="${esc(`Your ${many ? 'accounts\' balance, all added together' : 'account balance'}, going by your bank data up to ${dayLabel(d)}.`)}"><div class="muted">Bank balance · ${shortDay(d)}</div><div class="amt" style="font-size:22px${bal < 0 ? ';color:var(--bad)' : ''}">${fmt2(bal)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
 }
 
 function renderBudgets() {
