@@ -132,6 +132,7 @@ table.plan.lite .cmeta { display: flex; }
 .wprog b { font-weight: 600; color: var(--text-secondary); }
 .wprog .ok { color: var(--good); }
 .wprog.bad b, .wwhen.bad { color: var(--bad); }
+.btn.sugg.opt { border-style: dashed; color: var(--muted, #5b6b66); }
 .btn.sugg { padding: 1px 7px; font-size: 12px; color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
 .wsugg { font-size: 12px; }
 .warnt { color: var(--warn); font-weight: 600; }
@@ -3005,6 +3006,12 @@ function weeksLeft(m, day) {
   if (cur < m + '-01') starts.unshift(cur);
   return {cur, starts};
 }
+// How many of this month's weeks have started (counting this one, even if it began last month)
+function weeksStarted(m, day, cur) {
+  let n = cur < m + '-01' ? 1 : 0;
+  for (let d = m + '-01'; d <= todayStr(); d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day) n++;
+  return n;
+}
 // What the category had when this week began: what's in it now plus what has gone out of it since the week started
 function weekStartMoney(c, row, cur) {
   const today = todayStr();
@@ -3031,8 +3038,7 @@ function targetInfoRaw(c, m, row) {
       }
       // everything else (groceries, fuel...) builds up: the full weekly amount goes in every week, whatever is left over. Never more than one week's
       // worth at a time. What's assigned this month counts towards the weeks that have started, so pressing the button twice adds nothing
-      let started = cur < m + '-01' ? 1 : 0;
-      for (let d = m + '-01'; d <= todayStr(); d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day) started++;
+      const started = weeksStarted(m, day, cur);
       const under = n ? Math.min(t.amount, Math.max(0, round2(t.amount * started - (row.assigned[c] || 0)))) : 0;
       return {label: `${fmt(t.amount)} a week, builds up`, need, under, progress: need > 0 ? Math.min(1, Math.max(0, 1 - under / need)) : 1};
     }
@@ -3291,11 +3297,17 @@ function fundingPlan(m, P) {
     let rest = round2(Math.max(t ? t.under : 0, over + billShort));
     if (over) { const v = Math.min(over, rest); add(c, v, today, 'over', 'already spent'); rest = round2(rest - v); }
     for (const x of shorts) { const v = Math.min(rest, x.short); add(c, v, x.due, 'bill', x.name); rest = round2(rest - v); }
+    if (tg.type === 'weekly' && tg.amount > 0) { // next week (if it starts this month): a reminder, or an optional early top-up once this week is covered
+      const day = Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay, wl = weeksLeft(m, day), build = !isTopUpCat(c);
+      if (wl.starts[1]) {
+        const opt = build ? Math.min(tg.amount, Math.max(0, round2(tg.amount * (weeksStarted(m, day, wl.cur) + 1) - (row.assigned[c] || 0)))) : Math.max(0, round2(tg.amount - Math.max(0, av)));
+        topNext[c] = {date: wl.starts[1], amount: tg.amount, build, met: rest < 0.005, opt: Math.min(opt, Math.max(0, row.rta))};
+      }
+    }
     if (rest < 0.005) continue;
     if (tg.type === 'weekly' && tg.amount > 0) { // the weeks not covered yet are the last ones in the month
       const day = Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay, starts = weeksLeft(m, day).starts; // weeks that have finished are never funded
-      // Only this week's top-up. The next week is just a reminder: its amount depends on what's left over
-      if (starts[1]) topNext[c] = {date: starts[1], amount: tg.amount, build: !isTopUpCat(c)};
+      // Only this week's top-up (next week is in topNext, above)
       starts.length = Math.min(starts.length, 1);
       for (const d of starts) { if (rest < 0.005) break; const v = Math.min(rest, tg.amount); add(c, v, d, 'spend', `week of ${shortDay(d)}`, addDays(d, 6)); rest = round2(rest - v); }
     } else if (tg.type === 'monthly' && !dated.length) { // day-to-day spending: shared over the time until each pay
@@ -3707,15 +3719,15 @@ function renderBudgets() {
   // Funding plan suggestions: "+$X" assigns what to put in now; then what comes from later pay, and anything that'll be late
   const FP = fundingPlan(m, P);
   const planOf = c => {
-    const r = FP && FP.by[c];
+    const tn = FP && FP.topNext && FP.topNext[c], r = (FP && FP.by[c]) || (tn && tn.met ? {now: 0, later: [], late: [], moves: []} : null);
     if (!r) return '';
     const bits = [], nx = r.later[0], sum = f => round2(r.late.filter(f).reduce((s, l) => s + l.amount, 0));
     const late = sum(l => l.date && l.x.tier <= 2), gap = sum(l => !l.date && l.x.tier <= 2), wont = sum(l => !l.date && l.x.tier >= 3);
     if (r.now > 0.005) bits.push(`<button type="button" class="btn sm sugg" data-sugg="${esc(c)}" title="From Ready to Assign (${fmt2(Math.max(0, row.rta))} available)">Put aside ${fmt2(r.now)}</button>`);
     if (nx) bits.push(`<span class="muted">${r.now > 0.005 ? 'then ' : ''}${fmt2(nx.amount)} on ${shortDay(nx.date)}${r.later.length > 1 ? ' …' : ''}</span>`);
     if (late > 0.005) bits.push(`<b class="warnt">! ${fmt2(late)} late</b>`);
-    const tn = FP.topNext && FP.topNext[c];
-    if (tn) bits.push(`<span class="muted" title="${tn.build ? `Next week another ${fmt2(tn.amount)} goes in, on top of whatever is left.` : `Next week it only needs topping up to ${fmt2(tn.amount)}, whatever is left over.`}">${r.now > 0.005 ? 'then ' : ''}${tn.build ? '' : 'top up to '}${fmt2(tn.amount)} on ${shortDay(tn.date)}</span>`);
+    if (tn && tn.met && tn.opt > 0.005) bits.push(`<button type="button" class="btn sm sugg opt" data-opt="${esc(c)}" title="This week is already covered. This puts next week's money in early, from Ready to Assign (${fmt2(Math.max(0, row.rta))} available).">Optional: put aside ${fmt2(tn.opt)} for next week</button>`);
+    else if (tn && !(tn.met && r.now < 0.005 && !r.later.length)) bits.push(`<span class="muted" title="${tn.build ? `Next week another ${fmt2(tn.amount)} goes in, on top of whatever is left.` : `Next week it only needs topping up to ${fmt2(tn.amount)}, whatever is left over.`}">${r.now > 0.005 ? 'then ' : ''}${tn.build ? '' : 'top up to '}${fmt2(tn.amount)} on ${shortDay(tn.date)}</span>`);
     if (gap > 0.005) bits.push(`<b class="warnt">! ${fmt2(gap)} short</b>`);
     if (wont > 0.005) bits.push(`<span class="muted">${fmt2(wont)} won't fit</span>`);
     for (const mv of r.moves) bits.push(`<button type="button" class="btn sm take" data-take="${esc(mv.from)}" data-to="${esc(c)}" data-amt="${mv.amount}">Take ${fmt2(mv.amount)} from ${esc(mv.from)}</button>`);
@@ -3901,6 +3913,8 @@ function renderBudgets() {
     if (e.target.closest('[data-hiddenlist]')) { openCats(); return; }
     if (e.target.closest('[data-empty]')) { showEmpty = !showEmpty; localStorage.setItem('budget-show-empty', showEmpty ? '1' : ''); renderBudgets(); return; }
     const sg = e.target.closest('[data-sugg]');
+    const op = e.target.closest('[data-opt]');
+    if (op) { const FPo = fundingPlan(m, computePlan(m)), tn = FPo && FPo.topNext[op.dataset.opt]; if (tn && tn.opt > 0.005) { setAssigned(m, op.dataset.opt, round2(((plan.assigned[m] || {})[op.dataset.opt] || 0) + tn.opt)); toast(`Put aside ${fmt2(tn.opt)} in ${op.dataset.opt} for next week`); } renderBudgets(); return; }
     if (sg) { assignPlanNow(m, fundingPlan(m, computePlan(m)), sg.dataset.sugg); renderBudgets(); return; }
     const tk = e.target.closest('[data-take]');
     if (tk) { takeFrom(m, tk.dataset.take, tk.dataset.to, +tk.dataset.amt); renderBudgets(); return; }
