@@ -1323,6 +1323,8 @@ function acctBalance(id, d = dataEnd()) {
   for (const a of list) if (a.id !== '') { const v = own(a); if (v == null) return null; b -= v; }
   return round2(b);
 }
+// A card you're paying off over time (account.carry): what's owed on it isn't taken off your balance, only the repayments you plan are
+const carryOwed = (d = dataEnd()) => round2(-accounts.filter(a => a.carry).reduce((s, a) => s + Math.min(0, acctBalance(a.id, d) || 0), 0));
 // Westpac names its exports after the account: A0312340567890001-28Oct26.csv is account 03-1234-0567890-001
 function acctNumFromName(name) {
   const m = /(?<!\d)(\d{2})-?(\d{4})-?(\d{7})-?(\d{2,3})(?!\d)/.exec(name || '');
@@ -1810,7 +1812,7 @@ function forecastDataRaw(bills, everyday = true, today = todayStr(), weekly = nu
   events.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : b.amount - a.amount);
   const on = {};
   for (const e of events) (on[e.date] = on[e.date] || []).push(e);
-  const start = calcBalance(end);
+  const start = round2(calcBalance(end) + carryOwed(end)); // cash: a card being paid off over time isn't taken off (its repayment bill is)
   // Each day's change: a bill paid with money from outside (the offset, savings) leaves this balance alone
   const days = [], delta = [], payIn = [];
   let everydayTotal = 0; // everyday spending from today to the end
@@ -2700,7 +2702,7 @@ function renderOverview() {
     // Two or more accounts in this budget: show each one's balance, so the total is easy to check against the bank
     const accts = accounts.length > 1 ? accounts.map(a => ({a, bal: acctBalance(a.id, f.end)})) : [];
     const shortName = a => /^account\b/i.test(a.name) ? 'Bank account' : a.name.length <= 18 ? a.name : a.name.slice(0, 16) + '…';
-    const split = accts.map(x => `<span class="accsplit"><span>${esc(shortName(x.a))}</span><span>${fmt2(x.bal)}</span></span>`).join('');
+    const split = accts.map(x => x.a.carry ? `<span class="accsplit muted"><span>${esc(shortName(x.a))} owed</span><span>${fmt2(Math.max(0, -x.bal))}</span></span>` : `<span class="accsplit"><span>${esc(shortName(x.a))}</span><span>${fmt2(x.bal)}</span></span>`).join('');
     // The one number to look at first: what's left of this week's allowance for everything that isn't a bill (the tiles below are the detail)
     const leftTile = wa ? tile('Left to spend this week', fmt(Math.max(0, wa.left)), wa.amount <= 0 ? `nothing spare: tightest ${shortDay(wa.pinch.date)}` : `of ${fmt(wa.amount)} · ${wa.daysLeft} day${wa.daysLeft === 1 ? '' : 's'} to go`,
         wa.left < 0 || wa.amount <= 0 ? 'bad' : wa.left < wa.amount * 0.2 ? 'warn' : 'good',
@@ -2709,7 +2711,8 @@ function renderOverview() {
         + `<br>Tap to change the "keep at least" amount or set a cap.`) : '';
     tiles = leftTile + tile('Balance', fmt2(f.start), split || (hand ? `${shortDay(f.end)} · incl. ${fmt2(hand)} added by hand` : `at ${shortDay(f.end)}`), f.start < 0 ? 'bad' : '',
         `Your ${accts.length ? 'accounts\' balance, all added together' : 'account balance'}, going by your bank data up to ${dayLabel(f.end)}.`
-        + (accts.length ? '<br>' + accts.map(x => `${esc(x.a.name)}: ${fmt2(x.bal)}`).join('<br>') + (accts.some(x => x.bal < 0) ? '<br>A minus is money owed, like a credit card balance.' : '') : '')
+        + (accts.length ? '<br>' + accts.map(x => x.a.carry ? `${esc(x.a.name)}: you owe ${fmt2(Math.max(0, -x.bal))}` : `${esc(x.a.name)}: ${fmt2(x.bal)}`).join('<br>') + (accts.some(x => !x.a.carry && x.bal < 0) ? '<br>A minus is money owed, like a credit card balance.' : '') : '')
+        + (accts.some(x => x.a.carry) ? '<br>A card you\'re paying off over time isn\'t taken off this balance. Only the repayments you plan are.' : '')
         + (hand ? `<br>It includes ${fmt2(hand)} you added by hand that hasn't reached the bank yet.` : '')) + rtaTile
       + tile('Spent so far this month', fmt(b.habit), (pd.usual == null ? monthLabel(m) : pd.verdict === 'about usual' ? 'about the same as a typical month' : `${fmt(Math.abs(pd.diff))} ${pd.diff > 0 ? 'more' : 'less'} than a typical month by today`) + fxSub, pd.diff > 0 && pd.verdict !== 'about usual' ? 'warn' : '',
         `Spending so far in ${monthLabel(m)}, not counting money moved between your own accounts.` + (pd.usual != null ? `<br>A typical month by this day: ${fmt(pd.usual)} (the average of the last ${pd.n} months).` : '') + fxTip)
@@ -2840,7 +2843,7 @@ function dataChecks() {
     const actIn = round2(win.reduce((s, t) => s + kindIn(t, k => k === 'income'), 0)), actOut = round2(-win.reduce((s, t) => s + kindIn(t, k => k === 'expense'), 0));
     const moved = round2(win.reduce((s, t) => s + kindIn(t, k => k !== 'income' && k !== 'expense'), 0)); // transfers and savings with accounts outside the budget
     const evs = f.events.filter(e => e.date <= D && !e.outside), pIn = round2(evs.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0)), pBills = round2(-evs.filter(e => e.amount < 0).reduce((s, e) => s + e.amount, 0));
-    const pEvery = f.everydayBetween(T, D), real = calcBalance(D), gap = round2(real - moved - pt.bal), tol = Math.max(150, (actIn + actOut) * 0.1);
+    const pEvery = f.everydayBetween(T, D), real = round2(calcBalance(D) + carryOwed(D)), gap = round2(real - moved - pt.bal), tol = Math.max(150, (actIn + actOut) * 0.1);
     const early = T <= plan.cutoff; // your bills and pay were set up after that day, so this can't judge the forecast fairly yet
     add('Forecast vs what happened', early ? 'info' : Math.abs(gap) <= tol ? 'good' : 'warn',
       `On ${dateLabel(T)} the forecast said your balance would be about ${fmt(pt.bal)} on ${dateLabel(D)}. It was ${fmt(real)}`
@@ -3592,18 +3595,29 @@ function cardLineHTML() { // a credit card account: what's owed on it, and wheth
   const d = dataEnd(), cards = accounts.filter(a => /credit|card|visa|master|amex/i.test(a.name || ''));
   if (!cards.length) return '';
   const owed = round2(-cards.reduce((s, a) => s + Math.min(0, acctBalance(a.id, d) || 0), 0));
-  if (owed < 0.005) return '';
+  const carried = cards.filter(a => a.carry), switches = cards.map(a => `<label style="display:block;margin-top:4px"><input type="checkbox" data-carry="${esc(a.id)}" ${a.carry ? 'checked' : ''}> I'm paying <b>${esc(a.name)}</b> off over time <span class="muted">(its balance isn't taken off your money; only the repayments you plan are)</span></label>`).join('');
+  if (owed < 0.005) return `<div class="rline"><span>${switches}</span></div>`;
+  if (carried.length) { // paying over time: the debt sits beside the balance, and a planned repayment is what comes out of the budget
+    const planned = allBills().some(x => x.payBack && !x.done);
+    return `<div class="rline"><span><b>Credit card:</b> you owe ${fmt2(owed)}, not taken off your balance. ${planned ? 'Your planned repayments come out of the budget.' : `<b>No repayment is planned yet.</b> Add a bill that pays the card back, or your spending money will look bigger than it is.`}${switches}</span></div>`;
+  }
   const bank = round2(accounts.filter(a => !cards.includes(a)).reduce((s, a) => s + (acctBalance(a.id, d) || 0), 0));
-  return `<div class="rline"><span><b>Credit card:</b> you owe ${fmt2(owed)}. ${bank >= owed - 0.005 ? `Your other accounts hold ${fmt2(bank)}, so paying it off is covered.` : `Your other accounts hold ${fmt2(bank)}, which is <b>${fmt2(owed - bank)} short</b> of paying it off.`} <span class="muted">Card spending already comes out of its category.</span></span></div>`;
+  return `<div class="rline"><span><b>Credit card:</b> you owe ${fmt2(owed)}. ${bank >= owed - 0.005 ? `Your other accounts hold ${fmt2(bank)}, so paying it off is covered.` : `Your other accounts hold ${fmt2(bank)}, which is <b>${fmt2(owed - bank)} short</b> of paying it off.`} <span class="muted">Card spending already comes out of its category.</span>${switches}</span></div>`;
 }
+document.addEventListener('change', e => { // the "paying this card off over time" switch
+  const c = e.target.closest && e.target.closest('[data-carry]'); if (!c) return;
+  const a = accounts.find(x => x.id === c.dataset.carry); if (!a) return;
+  if (c.checked) a.carry = true; else delete a.carry;
+  store.set('accounts', accounts); refresh();
+});
 function weekLeftHTML() { // the same headline number as the Overview: what's left to spend this week
   const wa = weekAllowance(); if (!wa) return '';
   const col = wa.left < 0 || wa.amount <= 0 ? ';color:var(--bad)' : wa.left < wa.amount * 0.2 ? ';color:var(--warn)' : '';
   return `<div class="bankbal" style="font-size:13px" data-tip="${esc(`About ${fmt(wa.amount)} a week for things that aren't bills, after every bill, goal savings and a ${fmt(wa.buffer)} cushion. Spent so far this week: ${fmt2(wa.spent)}.`)}"><div class="muted">Left to spend this week${infoBtn(`About ${fmt(wa.amount)} a week for things that aren't bills, after every bill, goal savings and a ${fmt(wa.buffer)} cushion. Spent so far this week: ${fmt2(wa.spent)}.`)}</div><div class="amt" style="font-size:22px${col}">${fmt(Math.max(0, wa.left))}</div><div class="sub"><span class="muted">of ${fmt(wa.amount)}</span></div></div>`;
 }
 function bankBalHTML() {
-  const d = dataEnd(), bal = calcBalance(d), many = accounts.length > 1;
-  const lines = many ? accounts.map(a => `<span class="accsplit"><span>${esc(/^account\b/i.test(a.name) ? 'Bank account' : a.name)}</span><span>${fmt2(acctBalance(a.id, d))}</span></span>`).join('') : '';
+  const d = dataEnd(), bal = round2(calcBalance(d) + carryOwed(d)), many = accounts.length > 1;
+  const lines = many ? accounts.map(a => a.carry ? `<span class="accsplit muted" title="You're paying this card off over time, so it isn't taken off the balance."><span>${esc(a.name)} owed</span><span>${fmt2(Math.max(0, -(acctBalance(a.id, d) || 0)))}</span></span>` : `<span class="accsplit"><span>${esc(/^account\b/i.test(a.name) ? 'Bank account' : a.name)}</span><span>${fmt2(acctBalance(a.id, d))}</span></span>`).join('') : '';
   let of = null; if (FAMILY) { try { of = offsetForecast(forecastData(allBills(todayStr()), true, todayStr(), null, {topups: FAMILY})); } catch (e) { of = null; } }
   const sub = lines + (of ? `<span class="accsplit muted" title="What's left to draw in the offset. It's not part of the bank balance above."><span>Offset available</span><span>${fmt2(of.now)}</span></span>` : ''); // not added into the bank balance
   return `<div class="bankbal" style="font-size:13px" data-tip="${esc(`Your ${many ? 'accounts\' balance, all added together' : 'account balance'}, going by your bank data up to ${dayLabel(d)}.`)}"><div class="muted">Bank balance · ${shortDay(d)}</div><div class="amt" style="font-size:22px${bal < 0 ? ';color:var(--bad)' : ''}">${fmt2(bal)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
