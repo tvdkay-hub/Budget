@@ -2207,20 +2207,19 @@ function weekAllowance(today = todayStr()) {
   allowMemo = {cache, key, v};
   return v;
 }
-// Fun money pots: everyday (not Essentials) categories with a weekly target, like Takeaways and Family outings. Each has this
-// week's money left (target − spent) and anything "saved up": budget money beyond what the rest of this month's weeks need,
-// from quiet weeks before. It carries over because a category's Available does.
+// Fun money pots: everyday (not Essentials) categories with a weekly target, like Takeaways and Family outings. Each is a flat
+// weekly amount: what's left this week (target − spent). Nothing carries over. If a week goes over, it's flagged (over = this
+// week, overMonth = this month's earlier weeks plus this one) so it can be covered from another category.
 function funPots(wa) {
   if (!wa) return null;
-  const m = thisMonth(), P = computePlan(m), av = P && P.by[m] ? P.by[m].available : {}, today = todayStr();
-  const regular = regularKeys(allBills()), week = txns.filter(t => t.date >= wa.start && t.date <= today);
-  const first = m + '-01', last = addDays(addMonths(m, 1) + '-01', -1);
+  const m = thisMonth(), today = todayStr();
+  const regular = regularKeys(allBills()), first = m + '-01';
+  const spentIn = (c, a) => round2(txns.filter(t => t.date >= a && t.date <= addDays(a, 6) && t.date <= today).reduce((s, x) => s + everydayOut(x, regular, k => k === c), 0));
   const pots = Object.entries(plan.targets).filter(([c, t]) => t.type === 'weekly' && t.amount > 0 && everydayCat(c) && priorityOf(c) !== 2).map(([c, t]) => {
-    const day = Number.isInteger(t.day) ? t.day : SETTINGS.weekStartDay;
-    let n = wa.start < first ? 1 : 0; // this week's money was set aside last month
-    for (let d = wa.start >= first ? wa.start : first; d <= last; d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day) n++;
-    const spent = round2(week.reduce((s, x) => s + everydayOut(x, regular, k => k === c), 0)), left = Math.max(0, round2(t.amount - spent));
-    return {c, target: t.amount, spent, left, saved: Math.max(0, round2((av[c] || 0) - (t.amount * (Math.max(1, n) - 1) + left)))};
+    const spent = spentIn(c, wa.start), left = Math.max(0, round2(t.amount - spent)), over = Math.max(0, round2(spent - t.amount));
+    let overMonth = over;
+    for (let s = addDays(wa.start, -7); s >= first; s = addDays(s, -7)) overMonth += Math.max(0, round2(spentIn(c, s) - t.amount)); // earlier weeks that started this month
+    return {c, target: t.amount, spent, left, over, overMonth: round2(overMonth)};
   });
   const total = round2(pots.reduce((s, p) => s + p.target, 0));
   return {pots, total, short: pots.length > 1 && wa.fun < total};
@@ -2444,8 +2443,12 @@ function soonHTML(m, P, f) {
   const dayOf = e => e.date <= today ? today : e.date, byDay = {};
   for (const e of [...f.events, ...(f.topups || []).map(t => ({date: t.date, name: 'Top-up from the offset (if needed)', amount: t.amount}))]) (byDay[dayOf(e)] = byDay[dayOf(e)] || []).push(e);
   const iLow = f.pts.indexOf(low);
-  const chart = lineChart({xs: f.pts.map((_, i) => i), ys: f.pts.map(p => p.bal), label: `Expected balance over the next ${FC_DAYS} days`, go: f.pts.map(() => 'bills'),
-    ticks: f.pts.map((p, i) => [i, i ? shortDay(p.date) : 'Today']).filter(([i]) => i % 7 === 0), marks: [iLow], labels: [[iLow, 'Lowest ' + fmt(low.bal)]],
+  // A dot on every day something comes in or goes out (hover for what), and a short label on the three biggest
+  const evDays = f.pts.map((p, i) => [i, (byDay[p.date] || []).filter(e => e.amount !== 0)]).filter(([, l]) => l.length);
+  const big = evDays.map(([i, l]) => ({i, e: l.reduce((a, e) => Math.abs(e.amount) > Math.abs(a.amount) ? e : a)})).filter(x => x.i !== iLow).sort((a, b) => Math.abs(b.e.amount) - Math.abs(a.e.amount)).slice(0, 3);
+  const chart = lineChart({xs: f.pts.map((_, i) => i), ys: f.pts.map(p => p.bal), label: `Expected balance over the next ${FC_DAYS} days`, go: f.pts.map(() => 'billview:fc'),
+    ticks: f.pts.map((p, i) => [i, i ? shortDay(p.date) : 'Today']).filter(([i]) => i % 7 === 0), marks: [...new Set([iLow, ...evDays.map(([i]) => i)])],
+    labels: [[iLow, 'Lowest ' + fmt(low.bal)], ...big.map(x => [x.i, `${x.e.name.length > 14 ? x.e.name.slice(0, 13) + '…' : x.e.name} ${x.e.amount > 0 ? '+' : '−'}${fmt(Math.abs(x.e.amount))}`])],
     tips: f.pts.map(p => `<b>${dayLabel(p.date)}</b><br>Balance about ${fmt2(p.bal)}` + (byDay[p.date] || []).map(e => `<br>${esc(e.name)} ${fmt2(e.amount)}`).join(''))});
   const until = addDays(today, 14), soon = f.events.filter(e => e.date <= until);
   // Bills checked against their category, then Ready to Assign, then pay that comes in before them (see billCover)
@@ -2565,7 +2568,7 @@ function plainHTML(m, P, f, pd, b) {
   const low = `go below $0 around <b>${dayLabel(neg ? neg.date : f.low.date)}</b>, and could get down to about <b style="color:var(--bad)">${fmt(f.low.bal)}</b> around ${dayLabel(f.low.date)}`;
   if (tops.length) s += (change < -0.5 ? ` That's <b>${fmt(-change)} more going out than coming in</b>.` : ` That leaves you about ${fmt(change)} ahead by the end, but some bills come out before the money that pays for them comes in.`)
     + ` On its own your balance would get down to about ${fmt(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}, so you'll likely need <b>about ${fmt(topT)} from the offset</b>: `
-    + tops.map(t => `${fmt(t.amount)} by ${dayLabel(t.date)}`).join(', ') + '.';
+    + tops.map(t => `${fmt(t.amount)} by ${dayLabel(t.date)}`).join(', ') + `. With that, the lowest point is about <b>${fmt(f.low.bal)}</b> around ${dayLabel(f.low.date)} (the Lowest balance tile).`;
   else if (change < -0.5) s += ` That's <b>${fmt(-change)} more going out than coming in</b>, so your balance drifts down` + (neg ? `. It's likely to ${low}.` : `, but stays above $0 (lowest about ${fmt(f.low.bal)}, around ${dayLabel(f.low.date)}).`);
   else s += ` That leaves you about ${fmt(change)} ahead by the end` + (neg ? `, but some bills come out before the money that pays for them comes in. So your balance is likely to ${low}.` : '.');
   const outside = [...new Set(f.events.filter(e => e.outside).map(e => e.name))];
@@ -2623,6 +2626,8 @@ function plainHTML(m, P, f, pd, b) {
   }
   return card(`<div class="plain">${li.map(([h, t]) => `<div${h === 'What would help' ? ' class="help"' : ''}><b>${h}</b>${t}</div>`).join('')}</div>` + breakdown);
 }
+let payPeriod = '1'; // Top payees: how many months back from the one being viewed ('1', '3', '6', '12') or 'all'
+const PAY_PERIODS = {'1': 'month', '3': '3 months', '6': '6 months', '12': 'year', all: 'all time'};
 let plainOpen = false; // is "See the bills and money in behind this" open?
 document.addEventListener('toggle', e => { if (e.target.id === 'plainMore') plainOpen = e.target.open; }, true);
 
@@ -2641,7 +2646,8 @@ function renderOverview() {
   const P = isMonth(plan.start) && m >= plan.start ? computePlan(m) : null;
   const avgNet = prev.length ? prev.reduce((s, x) => s + cache.byMonth[x].income - cache.byMonth[x].spend, 0) / prev.length : 0;
   const payees = {};
-  txns.filter(t => t.date.startsWith(m) && !isInternal(t)).forEach(t => { const v = partsOf(t).reduce((s, x) => s + (KIND[x.cat] === 'expense' && !isFixed(x.cat) ? x.amount : 0), 0); if (v) { const p = payeeName(t); payees[p] = (payees[p] || 0) - v; } });
+  const payFrom = payPeriod === 'all' ? '' : addMonths(m, 1 - +payPeriod) + '-01', payTo = m + '-31'; // the chosen period, ending with the month being viewed
+  txns.filter(t => t.date >= payFrom && t.date <= payTo && !isInternal(t)).forEach(t => { const v = partsOf(t).reduce((s, x) => s + (KIND[x.cat] === 'expense' && !isFixed(x.cat) ? x.amount : 0), 0); if (v) { const p = payeeName(t); payees[p] = (payees[p] || 0) - v; } });
   const top = Object.entries(payees).sort((a, c) => c[1] - a[1]).slice(0, 10);
   // This month: where you stand now and what's coming. Other months: what came in and went out.
   const f = m === thisMonth() && plan.cutoff ? forecastData(allBills(), fcEveryday, todayStr(), null, {topups: FAMILY}) : null, pd = paceData(m);
@@ -2652,8 +2658,8 @@ function renderOverview() {
   // Each tile: a number and one short line under it. The longer explanation shows on hover.
   // go: where a click on the tile takes you (budgets, bills, tx, tx:out, tx:in, or bill:<key> for a pay's bill box)
   const nxGo = 'billview:in'; // Next money in: the Bills tab's "Money coming in" list (not the bill's edit box)
-  const TILE_GO = {'Left to spend this week': 'tx:out', 'Balance': 'tx', 'Ready to Assign': 'budgets', 'Spent so far': 'tx:out', 'Spending': 'tx:out', 'Money in': 'tx:in', 'Left over': 'budgets', 'Lowest balance coming up': 'bills', 'Top-up needed': 'bills', 'Fun money this week': 'tx:out'};
-  const NEUTRAL = {'Left to spend this week': 'teal', 'Balance': 'teal', 'Ready to Assign': 'sky', 'Spent so far': 'leaf', 'Spending': 'sky', 'Money in': 'leaf', 'Left over': 'sky', 'Next money in': 'leaf', 'Lowest balance coming up': 'teal'}; // tiles with no good/warn/bad status still get a colour
+  const TILE_GO = {'Left to spend this week': 'ovview:pace', 'Balance': 'reconcile', 'Ready to Assign': 'budgets', 'Spent so far this month': 'tx:out', 'Spending': 'tx:out', 'Money in': 'tx:in', 'Left over': 'budgets', 'Lowest balance coming up': 'billview:fc', 'Top-up needed': 'billview:fc', 'Fun money this week': 'tx:out'};
+  const NEUTRAL = {'Left to spend this week': 'teal', 'Balance': 'teal', 'Ready to Assign': 'sky', 'Spent so far this month': 'leaf', 'Spending': 'sky', 'Money in': 'leaf', 'Left over': 'sky', 'Next money in': 'leaf', 'Lowest balance coming up': 'teal'}; // tiles with no good/warn/bad status still get a colour
   const tile = (label, value, sub, color, tip, go = label === 'Next money in' ? nxGo : TILE_GO[label]) => `<div class="tile tone-${/^(good|warn|bad)$/.test(color) ? color : NEUTRAL[label] || 'teal'}"${tip ? ` data-tip="${esc(tip)}"` : ''}${go ? ` data-go="${esc(go)}" tabindex="0" role="button"` : ''}><div class="label">${label}${tip ? infoBtn(tip) : ''}</div><div class="value"${color ? ` style="color:var(--${color})"` : ''}>${value}</div><div class="sub">${sub}</div></div>`;
   const rtaTile = P ? tile('Ready to Assign', fmt2(P.by[m].rta), P.by[m].rta < -0.005 ? 'assigned more than you have' : 'not given a job yet', P.by[m].rta < -0.005 ? 'bad' : '', 'Money in your budget that hasn\'t been given a job yet. Give it one on the Budget tab.') : '';
   let tiles;
@@ -2665,7 +2671,7 @@ function renderOverview() {
     const nxFx = -nxFixed.reduce((s, e) => s + e.amount, 0);
     const ws = weekSpend(), wa = weekAllowance(); // this week against your weekly allowance
     const to = wa ? goalTradeoff(wa.funLeft) : []; // what unspent fun money would add to the goals
-    const fp = funPots(wa), potLines = fp && fp.pots.length ? fp.pots.map(p => `<br>${esc(p.c)}: ${fmt(p.left)} left of ${fmt(p.target)}` + (p.saved > 0 ? ` + ${fmt(p.saved)} saved up` : '')).join('') + (fp.short ? `<br><b>Fun money doesn't cover all ${fp.pots.length} (${fmt(fp.total)} a week)</b>` : '') : '';
+    const fp = funPots(wa), potLines = fp && fp.pots.length ? fp.pots.map(p => `<br>${esc(p.c)}: ${p.over > 0.005 ? `<b style="color:var(--bad)">${fmt(p.over)} over</b> its ${fmt(p.target)}` : `${fmt(p.left)} left of ${fmt(p.target)}`}` + (p.overMonth > p.over + 0.005 ? ` · ${fmt(p.overMonth)} over this month` : '')).join('') + (fp.short ? `<br><b>Fun money doesn't cover all ${fp.pots.length} (${fmt(fp.total)} a week)</b>` : '') : '';
     const tw = topUpWarn(f); // a top-up from the offset coming up (family budget)
     const of = offsetForecast(f), ofShort = of && of.short && daysBetween(f.today, of.short.date) <= 14; // and what's left to draw in the offset
     const ofTip = of ? `<br>${esc(of.name)}: ${fmt2(of.now)} available to draw now.` + (of.short ? ` <b>About ${fmt(of.short.amount)} short on ${dayLabel(of.short.date)}</b>, when ${esc(nameList(of.short.what))} come${of.short.what.length === 1 ? 's' : ''} out.` : ` Lowest about ${fmt(of.low.avail)} around ${shortDay(of.low.date)}.`) : '';
@@ -2677,21 +2683,25 @@ function renderOverview() {
     // The one number to look at first: what's left of this week's allowance for everything that isn't a bill (the tiles below are the detail)
     const leftTile = wa ? tile('Left to spend this week', fmt(Math.max(0, wa.left)), wa.amount <= 0 ? `nothing spare: tightest ${shortDay(wa.pinch.date)}` : `of ${fmt(wa.amount)} · ${wa.daysLeft} day${wa.daysLeft === 1 ? '' : 's'} to go`,
         wa.left < 0 || wa.amount <= 0 ? 'bad' : wa.left < wa.amount * 0.2 ? 'warn' : 'good',
-        `After every bill, goal savings and a ${fmt(wa.buffer)} cushion, you can spend about <b>${fmt(wa.amount)}</b> this week (${shortDay(wa.start)} to ${shortDay(wa.end)}) on things that aren't bills. You've spent ${fmt2(wa.spent)} so far, so <b>${wa.left >= 0 ? fmt2(wa.left) + ' is left' : fmt2(-wa.left) + ' over'}</b>.<br>Fun money, spent evenly, is the part of it after essentials: see the Fun money tile.`) : '';
+        `You can spend about <b>${fmt(wa.amount)}</b> this week (${shortDay(wa.start)} to ${shortDay(wa.end)}) on things that aren't bills. You've spent ${fmt2(wa.spent)} so far, so <b>${wa.left >= 0 ? fmt2(wa.left) + ' is left' : fmt2(-wa.left) + ' over'}</b>.`
+        + `<br>How it's worked out: your balance, less every bill coming up, less money already set aside (${wa.goals.saved > 0.005 ? 'goals ' + fmt(wa.goals.saved) : 'goals $0'}${wa.held.list.length ? '; ' + esc(nameList(wa.held.list.map(x => `${x.c} ${fmt(x.amount)}`))) : ''}), less a ${fmt(wa.buffer)} "keep at least" amount. What's left is spread evenly over the weeks until the tightest day (${shortDay(wa.pinch.date)}).`
+        + `<br>Tap to change the "keep at least" amount or set a cap.`) : '';
     tiles = leftTile + tile('Balance', fmt2(f.start), split || (hand ? `${shortDay(f.end)} · incl. ${fmt2(hand)} added by hand` : `at ${shortDay(f.end)}`), f.start < 0 ? 'bad' : '',
         `Your ${accts.length ? 'accounts\' balance, all added together' : 'account balance'}, going by your bank data up to ${dayLabel(f.end)}.`
         + (accts.length ? '<br>' + accts.map(x => `${esc(x.a.name)}: ${fmt2(x.bal)}`).join('<br>') + (accts.some(x => x.bal < 0) ? '<br>A minus is money owed, like a credit card balance.' : '') : '')
         + (hand ? `<br>It includes ${fmt2(hand)} you added by hand that hasn't reached the bank yet.` : '')) + rtaTile
-      + tile('Spent so far', fmt(b.habit), (pd.verdict || 'this month') + fxSub
-          + (ws ? `<br><b style="color:var(--${ws.left < 0 ? 'bad' : ws.left < ws.amount * 0.2 ? 'warn' : 'good'})">This week: ${fmt(ws.spent)} of ${fmt(ws.amount)}</b>` : ''), pd.diff > 0 && pd.verdict !== 'about usual' ? 'warn' : '',
-        `Spending this month, not counting money moved between your own accounts.` + (pd.usual != null ? `<br>A typical month by this day: ${fmt(pd.usual)} (the average of the last ${pd.n}).` : '') + fxTip
-          + (ws ? `<br>This week (${shortDay(ws.start)} to ${shortDay(ws.end)}): ${fmt2(ws.spent)} of your ${fmt(ws.amount)} ${ws.auto ? 'weekly allowance' : 'limit'}, ${ws.left >= 0 ? fmt2(ws.left) + ' left' : fmt2(-ws.left) + ' over'}, ${ws.daysLeft} day${ws.daysLeft === 1 ? '' : 's'} to go.` : ''))
-      + (wa ? tile('Fun money this week', fmt(Math.max(0, wa.funLeft)), (wa.amount <= 0 ? `nothing spare: tightest ${shortDay(wa.pinch.date)}` : `left of ${fmt(wa.fun)} · to ${shortDay(wa.end)}`) + potLines
-          + (to.length ? `<br>Not spent → ${to.map(p => `${fmt(p.amount)} ${esc(p.c)}`).join(', ')}` : ''), wa.amount <= 0 || wa.funLeft <= 0 ? 'bad' : wa.funLeft < wa.fun * 0.2 || (fp && fp.short) ? 'warn' : 'good',
-        `This is your spare money: what's left after every bill, pay, goal savings and essentials.` + (fp && fp.pots.length ? ` It's shared between ${fp.pots.map(p => esc(p.c)).join(' and ')} (their weekly targets on the Budget tab). Money you don't use in a week stays saved up for that category. Anything spent on a day out goes in a category like Family outings, food included.` : '') + (to.length ? ` Spend it and that's ${fmt(to.reduce((s, p) => s + p.amount, 0))} less going to your goals next week (${to.map(p => `${fmt(p.amount)} to ${esc(p.c)}`).join(', ')}); leave it and it's offered to them.<br>` : '<br>')
-        + `Your weekly allowance for things that aren't bills is <b>${fmt(wa.amount)}</b>${wa.cap != null && wa.raw > wa.cap ? ` (your cap; the app works out ${fmt(wa.raw)})` : ''}: spent evenly, your balance never drops below ${fmt(wa.buffer)} in the next 6 weeks.`
-        + `<br>Essentials (groceries, fuel, health) take about ${fmt(wa.e)} of it, leaving ${fmt(wa.fun)} fun money.<br>Spent this week so far: ${fmt2(wa.spent)} (${fmt2(wa.essSpent)} of it on essentials).`
-        + `<br>Tightest point: about ${fmt(wa.pinch.bal)} around ${dayLabel(wa.pinch.date)}, before everyday spending.`) : '')
+      + tile('Spent so far this month', fmt(b.habit), (pd.usual == null ? monthLabel(m) : pd.verdict === 'about usual' ? 'about the same as a typical month' : `${fmt(Math.abs(pd.diff))} ${pd.diff > 0 ? 'more' : 'less'} than a typical month by today`) + fxSub, pd.diff > 0 && pd.verdict !== 'about usual' ? 'warn' : '',
+        `Spending so far in ${monthLabel(m)}, not counting money moved between your own accounts.` + (pd.usual != null ? `<br>A typical month by this day: ${fmt(pd.usual)} (the average of the last ${pd.n} months).` : '') + fxTip)
+      + (wa ? (() => { // with weekly targets set, fun money is those flat amounts; with none, it's the allowance left after essentials
+          const hasPots = fp && fp.pots.length, funLeft = hasPots ? round2(fp.pots.reduce((s, p) => s + p.left, 0)) : Math.max(0, wa.funLeft), funOf = hasPots ? fp.total : wa.fun;
+          const anyOver = hasPots && fp.pots.some(p => p.over > 0.005 || p.overMonth > 0.005);
+          return tile('Fun money this week', fmt(funLeft), (wa.amount <= 0 ? `nothing spare: tightest ${shortDay(wa.pinch.date)}` : `left of ${fmt(funOf)} · to ${shortDay(wa.end)}`) + potLines
+            + (!hasPots && to.length ? `<br>Not spent → ${to.map(p => `${fmt(p.amount)} ${esc(p.c)}`).join(', ')}` : ''), wa.amount <= 0 || anyOver && fp.pots.some(p => p.over > 0.005) ? 'bad' : funLeft <= 0 || anyOver || (fp && fp.short) ? 'warn' : 'good',
+            hasPots ? `Your treat money: a flat ${fmt(fp.total)} each week${fp.pots.length > 1 ? ` shared between ${fp.pots.map(p => esc(p.c)).join(' and ')}` : ` for ${esc(fp.pots[0].c)}`} (set on the Budget tab). It resets every ${new Date(wa.start + 'T00:00:00').toLocaleDateString('en-NZ', {weekday: 'long'})}; what you don't spend isn't carried over.`
+                + (anyOver ? `<br><b>You've gone over: cover ${fmt(Math.max(...fp.pots.map(p => p.overMonth)))} or so from another category on the Budget tab.</b>` : '')
+              : `Your spare money after every bill, pay, goal savings and essentials. Set a weekly target on a category (Budget tab) to make it a flat amount.`
+                + (to.length ? ` Spend it and that's ${fmt(to.reduce((s, p) => s + p.amount, 0))} less going to your goals next week; leave it and it's offered to them.` : ''),
+            hasPots && fp.pots.length === 1 ? `txcat:${m}|${fp.pots[0].c}` : 'tx:out'); })() : '')
       + (nx ? tile('Next money in', fmt(nxIn), `${dayLabel(nx.date)} · in ${nd} day${nd === 1 ? '' : 's'}`
           + (nxFx > 0.5 ? `<br><b style="color:var(--text-primary)">${fmt(nxIn - nxFx)}</b> after fixed costs` : ''), '',
         nxList.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join('<br>')
@@ -2703,10 +2713,11 @@ function renderOverview() {
           `Without it, your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.<br>This is just enough to stay above ${fmt(f.floor)} until the next money in, rounded up to $50.`
           + (f.topups.length > 1 ? '<br>Later: ' + f.topups.slice(1).map(t => `${fmt(t.amount)} by ${shortDay(t.date)}`).join(', ') : '')
           + (f.fromOffset.outside > 0.005 ? `<br>The offset also pays ${fmt2(f.fromOffset.outside)} of bills in the next 6 weeks (like the rates).` : '') + ofTip)
-        : tile('Lowest balance coming up', fmt(f.low.bal), `around ${dayLabel(f.low.date)}` + (f.topups.length ? ` · after a ${fmt(f.topups[0].amount)} top-up` : '')
+        : tile('Lowest balance coming up', fmt(f.low.bal), `around ${dayLabel(f.low.date)}` + (f.topups.length ? ` · includes a ${fmt(f.topups[0].amount)} top-up from the offset by ${shortDay(f.topups[0].date)}` : '')
             + (ofShort ? `<br><b style="color:var(--bad)">Offset ${fmt(of.short.amount)} short ${shortDay(of.short.date)}</b>` : ''), f.low.bal < 0 || ofShort ? 'bad' : f.low.bal < Math.max(100, f.typical) && !f.topups.length ? 'warn' : '',
         `Your account's expected lowest point in the next 6 weeks${f.low.bal < 0 ? ' (overdrawn)' : ''}, counting bills, regular money in${fcEveryday ? ' and typical everyday spending' : ''}.`
-        + (f.topups.length ? `<br>That counts a top-up from the offset of ${fmt(f.topups[0].amount)} by ${dayLabel(f.topups[0].date)}. Without it: about ${fmt2(f.rawLow.bal)}.` : '') + ofTip
+        + (f.topups.length ? `<br>That counts a top-up from the offset of ${fmt(f.topups[0].amount)} by ${dayLabel(f.topups[0].date)}, because without it your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.` : '')
+        + (() => { const on = f.events.filter(e => e.date === f.low.date && !e.outside); return on.length ? `<br>That day: ${on.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join(', ')}.` : `<br>Nothing is due that day: it's the low point after the bills and everyday spending before it.`; })() + ofTip
         + (fcEveryday ? '<br>The upcoming rows on the Transactions tab leave out everyday spending, so they show a higher balance.' : '')));
   } else {
     // Money moved in from accounts outside this budget (like an offset top-up): not income, but the Budget tab counts it as money in
@@ -2726,7 +2737,8 @@ function renderOverview() {
     pace: () => `<div class="card">${paceHTML(m, pd)}</div>`,
     where: () => `<div class="card"><h2>Where the money went — ${monthLabel(m)}</h2>${categoryBars(m, P)}</div>`,
     trends: () => `<div class="card" id="trendCard"></div>`,
-    payees: () => `<div class="card"><h2>Top payees — ${monthLabel(m)}</h2><table>
+    payees: () => `<div class="card"><h2>Top payees — ${payPeriod === 'all' ? 'all time' : payPeriod === '1' ? monthLabel(m) : `last ${PAY_PERIODS[payPeriod]} to ${monthLabel(m)}`}</h2>
+      <div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap">${Object.entries(PAY_PERIODS).map(([k, lab]) => `<button type="button" class="btn sm${k === payPeriod ? ' primary' : ''}" data-payper="${k}">${k === '1' ? 'This month' : lab[0].toUpperCase() + lab.slice(1)}</button>`).join('')}</div><table>
         ${top.map(([p, v]) => `<tr data-go="${esc('txpay:' + p)}" title="See these transactions"><td>${esc(p)}</td><td class="num">${fmt2(v)}</td></tr>`).join('') || '<tr><td class="muted">None</td></tr>'}
       </table></div>`,
     words: () => `<div class="card"><h2>What these words mean</h2><dl class="words">
@@ -2737,7 +2749,8 @@ function renderOverview() {
         <dt>Overspent</dt><dd>Spent more than the category had. Move money in from another category (Cover it), or it comes off next month's Ready to Assign.</dd>
         <dt>Target</dt><dd>How much a category should have: a set amount each month or week, topped up to an amount, saved by a date, or following your bills.</dd>
         <dt>Fixed cost</dt><dd>A cost that comes out no matter what (the mortgage, insurance). It's left out of your everyday spending figures.</dd>
-        <dt>Left to spend this week</dt><dd>What you can spend this week on things that aren't bills, after every bill, your goals and a cushion. Fun money is the part left after essentials.</dd>
+        <dt>Left to spend this week</dt><dd>What you can spend this week on things that aren't bills: your balance, less every bill coming up, less money already set aside (goals, Joint Savings), less your "keep at least" amount.</dd>
+        <dt>Fun money</dt><dd>Your treat money: a flat weekly amount set as a weekly target on a category (like Dining &amp; Takeaway). It resets each week and nothing carries over. Go over and the tile says so, so you can cover it from another category.</dd>
         <dt>Offset and top-up</dt><dd>The offset is the home loan you draw on. A top-up is money moved from it into the Joint account when the balance would run low.</dd>
         <dt>Reconcile</dt><dd>Tell the app what the bank says your balance is, so any difference is shown and fixed.</dd>
         <dt>Net worth</dt><dd>Everything you own minus everything you owe.</dd></dl></div>`,
@@ -7175,6 +7188,7 @@ $('#tab-budgets').addEventListener('click', e => { if (e.target.closest('#billsC
 function tileGo(go) {
   if (go.startsWith('bill:')) { openBillRow(go.slice(5)); return; }
   if (go.startsWith('billview:')) { billView = go.slice(9); tab = 'bills'; render(); scrollTo(0, 0); return; } // one of the Bills tab's views
+  if (go.startsWith('ovview:')) { ovView = go.slice(7); tab = 'overview'; render(); scrollTo(0, 0); return; } // one of the Overview's cards (like Spending pace)
   // From a chart: a day's money out, a category in a month (* = every month), or a payee this month
   const toTx = (f, month) => {
     Object.assign(txFilter, {q: '', cat: '', acct: '', show: '', ...f, allMonths: month === '*'});
@@ -7193,6 +7207,10 @@ function tileGo(go) {
 $('#tab-overview').addEventListener('click', e => { // a big button, or Back
   const v = e.target.closest('[data-ovview]'); if (!v) return;
   ovView = v.dataset.ovview; render(); scrollTo(0, 0);
+});
+$('#tab-overview').addEventListener('click', e => { // Top payees: this month, 3 months, 6 months, a year or all time
+  const b = e.target.closest('[data-payper]'); if (!b) return;
+  payPeriod = b.dataset.payper; renderOverview();
 });
 $('#tab-overview').addEventListener('click', e => { // "See how last month went" in the first week of a month
   const b = e.target.closest('[data-reviewmonth]'); if (!b) return;
