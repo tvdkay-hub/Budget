@@ -831,6 +831,29 @@ main th.sort-desc::after { content: ' ▼'; font-size: .75em; }
     </div>
   </form>
 </dialog>
+<dialog id="poDlg">
+  <form method="dialog">
+    <h2 style="margin:0 0 12px;font-size:16px" id="poTitle">Pay off the card</h2>
+    <div style="display:grid;gap:10px">
+      <label>How do you want to pay it off?
+        <select id="poMode" style="width:100%"><option value="amount">Pay the same amount each time</option><option value="date">Be clear by a date (the app works out the payment)</option><option value="min">Just the bank minimum (to see how long it takes)</option></select></label>
+      <label id="poAmtWrap">Each payment $ <input type="number" id="poAmt" min="1" step="1" style="width:130px"></label>
+      <label id="poByWrap" style="display:none">Clear it by <input type="date" id="poBy"></label>
+      <div class="row" style="gap:10px">
+        <label>How often <select id="poEvery"><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select></label>
+        <label>First payment <input type="date" id="poFirst"></label>
+      </div>
+      <label>Interest rate, % a year <span class="muted">(optional, leave blank to ignore interest)</span> <input type="number" id="poRate" min="0" step="0.1" style="width:110px"></label>
+      <div id="poMsg" style="font-size:14px"></div>
+      <div class="muted" style="font-size:12px">Saving also adds the payment to your Bills, so Until payday and Left to spend set that money aside. The balance owed is left out of your bank balance while you pay it off.</div>
+    </div>
+    <div style="display:flex;flex-direction:row-reverse;gap:8px;margin-top:16px">
+      <button class="btn primary" value="ok" id="poOk">Save plan</button>
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn danger" value="remove" id="poDel" formnovalidate style="margin-right:auto">Remove plan</button>
+    </div>
+  </form>
+</dialog>
 <dialog id="txDlg" style="width:min(520px,94vw)">
   <form method="dialog">
     <h2 style="margin:0 0 4px;font-size:16px" id="tdTitle"></h2>
@@ -1601,7 +1624,7 @@ const billAmtOn = (b, d) => b.until && d === b.until && b.lastAmount != null ? b
 function ownBill(a, from) {
   const r = RHYTHMS.find(x => x[0] === a.rhythm) || [], c = resolveCat(a.cat || '');
   const b = {key: a.id, id: a.id, name: a.name, out: a.out, rhythm: a.rhythm, days: r[1] || 0, months: r[3] || 0, anchor: a.date, k0: 0,
-    amount: a.amount, varies: false, cat: KIND[c] ? c : null, manual: true, email: a.email || null, biller: a.biller || null, outside: !!(a.outside && a.out), payee: a.rhythm !== 'once' && a.payee || null};
+    amount: a.amount, varies: false, cat: KIND[c] ? c : null, manual: true, email: a.email || null, biller: a.biller || null, outside: !!(a.outside && a.out), payee: a.rhythm !== 'once' && a.payee || null, cardPay: a.cardPay || null};
   if (a.rhythm !== 'once') while (b.k0 < 5000 && dueOn(b, b.k0) < from) b.k0++;
   if (b.payee) { const hist = paidTo(payeeTest(b)); for (let n = 0; n < 30 && pausedThen(b, dueOn(b, b.k0), hist); n++) b.k0++; } // its next one is after the break
   b.next = a.rhythm === 'once' ? a.date : dueOn(b, b.k0);
@@ -2125,10 +2148,10 @@ function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))
 const narrowScreen = () => matchMedia('(max-width: 700px)').matches; // a phone: charts are drawn narrower, so their writing stays readable
 function lineChart(o) {
   const W = narrowScreen() ? 420 : 760, H = 240, L = 62, R = 14, T = 16, B = 26;
-  const lo = Math.min(0, ...o.ys), hi = Math.max(0, ...o.ys), step = niceStep((hi - lo) / 4 || 1);
+  const lo = Math.min(0, ...o.ys, ...(o.ys2 || [])), hi = Math.max(0, ...o.ys, ...(o.ys2 || [])), step = niceStep((hi - lo) / 4 || 1);
   const top = Math.max(step, Math.ceil(hi / step) * step), bot = Math.floor(lo / step) * step;
   const y = v => T + (H - T - B) * (top - v) / (top - bot);
-  const x0 = o.xs[0], x1 = o.xs.at(-1), x = v => x1 === x0 ? (L + W - R) / 2 : L + (W - L - R) * (v - x0) / (x1 - x0);
+  const x0 = o.xs[0], x1 = Math.max(o.xs.at(-1), ...(o.xs2 || [])), x = v => x1 === x0 ? (L + W - R) / 2 : L + (W - L - R) * (v - x0) / (x1 - x0);
   let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(o.label)}">`;
   for (let i = 0; bot + i * step <= top + step / 1e6; i++) { // gridlines; $0 is darker when the line goes below it
     const v = bot + i * step, zero = Math.abs(v) < step / 1e6;
@@ -2136,7 +2159,12 @@ function lineChart(o) {
   }
   for (const [v, lab] of o.ticks) { const px = x(v); s += `<text x="${px}" y="${H - 8}" text-anchor="${px < L + 24 ? 'start' : px > W - R - 24 ? 'end' : 'middle'}">${esc(lab)}</text>`; }
   const P = o.xs.map((v, i) => [x(v), y(o.ys[i])]);
-  s += `<path d="${P.map(([a, b], i) => (i ? 'L' : 'M') + a.toFixed(1) + ',' + b.toFixed(1)).join('')}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const pathOf = pts => pts.map(([a, b], i) => (i ? 'L' : 'M') + a.toFixed(1) + ',' + b.toFixed(1)).join('');
+  if (o.now != null && o.now < P.length - 1) { // o.now: the line is solid up to this point and dashed after it (what happened, then the plan)
+    s += `<path d="${pathOf(P.slice(0, o.now + 1))}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
+      + `<path d="${pathOf(P.slice(o.now))}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round" stroke-linecap="round"/>`;
+  } else s += `<path d="${pathOf(P)}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  if (o.xs2 && o.xs2.length > 1) s += `<path d="${pathOf(o.xs2.map((v, i) => [x(v), y(o.ys2[i])]))}" fill="none" stroke="var(--series-2)" stroke-width="2" stroke-dasharray="2 4" stroke-linejoin="round" stroke-linecap="round"/>`; // a second line: the what-if
   for (const i of o.marks || []) s += `<circle cx="${P[i][0]}" cy="${P[i][1]}" r="4" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2"/>`;
   for (const [i, text] of o.labels || []) {
     const [px, py] = P[i], below = py + 18 <= H - B - 2; // under the dot if there's room: nothing on the line is lower than the lowest point
@@ -2757,7 +2785,7 @@ function renderOverview() {
   const soonCard = f ? soonHTML(m, P, f) : '', payCard = f ? payBackHTML() : '', oddCard = unusualHTML(m);
   const cardOf = {
     plain: () => plainHTML(m, P, f, pd, b),
-    soon: () => soonCard, goals: () => goalsHTML(), payback: () => payCard, odd: () => oddCard,
+    soon: () => soonCard, goals: () => goalsHTML(), payback: () => payCard, cardpay: () => payoffHTML(), odd: () => oddCard,
     pace: () => `<div class="card">${paceHTML(m, pd)}</div>`,
     where: () => `<div class="card"><h2>Where the money went — ${monthLabel(m)}</h2>${categoryBars(m, P)}</div>`,
     trends: () => `<div class="card" id="trendCard"></div>`,
@@ -2789,6 +2817,7 @@ function renderOverview() {
     const btns = [
       ot('goals', 'Savings goals', String(goalList().length), goalList().length === 1 ? 'goal' : 'goals', 'leaf'),
       payCard ? ot('payback', 'Paying back', owed.length ? fmt(owed.reduce((s, x) => s + (x.payBack.left || 0), 0)) : 'Done', owed.length ? 'still to pay' : 'recently paid off', 'leaf') : '',
+      poCards().length ? ot('cardpay', 'Card pay-off', fmt(poCards().reduce((t, a) => t + Math.max(0, -(acctBalance(a.id, dataEnd()) || 0)), 0)), 'still owed', 'leaf') : '',
       ot('pace', 'Spending pace', fmt(b.habit), esc(pd.verdict || 'this month'), pd.diff > 0 && pd.verdict !== 'about usual' ? 'warn' : 'sky'),
       ot('where', 'Where it went', fmt(b.habit), 'by category', 'sky'),
       ot('trends', 'Trends', '12 months', 'by category', 'teal'),
@@ -3596,19 +3625,166 @@ function cardLineHTML() { // a credit card account: what's owed on it, and wheth
   if (!cards.length) return '';
   const owed = round2(-cards.reduce((s, a) => s + Math.min(0, acctBalance(a.id, d) || 0), 0));
   const carried = cards.filter(a => a.carry), switches = cards.map(a => `<label style="display:block;margin-top:4px"><input type="checkbox" data-carry="${esc(a.id)}" ${a.carry ? 'checked' : ''}> I'm paying <b>${esc(a.name)}</b> off over time <span class="muted">(its balance isn't taken off your money; only the repayments you plan are)</span></label>`).join('');
-  if (owed < 0.005) return `<div class="rline"><span>${switches}</span></div>`;
+  const poBtns = cards.map(a => { const s = poState(a); return `<div style="margin-top:6px">${s && !s.err ? `<span class="muted">Pay-off plan: ${poSummary(s)}</span> ` : ''}<button type="button" class="btn sm${a.payoff ? '' : ' primary'}" data-poopen="${esc(a.id)}">${a.payoff ? 'Change the pay-off plan' : 'Set up a pay-off plan'}</button></div>`; }).join('');
+  if (owed < 0.005) return `<div class="rline"><span>${switches}${poBtns}</span></div>`;
   if (carried.length) { // paying over time: the debt sits beside the balance, and a planned repayment is what comes out of the budget
-    const planned = allBills().some(x => x.payBack && !x.done);
-    return `<div class="rline"><span><b>Credit card:</b> you owe ${fmt2(owed)}, not taken off your balance. ${planned ? 'Your planned repayments come out of the budget.' : `<b>No repayment is planned yet.</b> Add a bill that pays the card back, or your spending money will look bigger than it is.`}${switches}</span></div>`;
+    const planned = allBills().some(x => (x.payBack || x.cardPay) && !x.done);
+    return `<div class="rline"><span><b>Credit card:</b> you owe ${fmt2(owed)}, not taken off your balance. ${planned ? 'Your planned repayments come out of the budget.' : `<b>No repayment is planned yet.</b> Set up a pay-off plan, or add a bill that pays the card back, or your spending money will look bigger than it is.`}${switches}${poBtns}</span></div>`;
   }
   const bank = round2(accounts.filter(a => !cards.includes(a)).reduce((s, a) => s + (acctBalance(a.id, d) || 0), 0));
-  return `<div class="rline"><span><b>Credit card:</b> you owe ${fmt2(owed)}. ${bank >= owed - 0.005 ? `Your other accounts hold ${fmt2(bank)}, so paying it off is covered.` : `Your other accounts hold ${fmt2(bank)}, which is <b>${fmt2(owed - bank)} short</b> of paying it off.`} <span class="muted">Card spending already comes out of its category.</span>${switches}</span></div>`;
+  return `<div class="rline"><span><b>Credit card:</b> you owe ${fmt2(owed)}. ${bank >= owed - 0.005 ? `Your other accounts hold ${fmt2(bank)}, so paying it off is covered.` : `Your other accounts hold ${fmt2(bank)}, which is <b>${fmt2(owed - bank)} short</b> of paying it off.`} <span class="muted">Card spending already comes out of its category.</span>${switches}${poBtns}</span></div>`;
 }
 document.addEventListener('change', e => { // the "paying this card off over time" switch
   const c = e.target.closest && e.target.closest('[data-carry]'); if (!c) return;
   const a = accounts.find(x => x.id === c.dataset.carry); if (!a) return;
   if (c.checked) a.carry = true; else delete a.carry;
   store.set('accounts', accounts); refresh();
+});
+// ---------- Credit card pay-off plan (account.payoff) ----------
+// {mode: 'amount' | 'date' | 'min', amount, by (date), every: weekly | fortnightly | monthly, first (a payday), rate (% a year), startBal, startDate, endAt}
+const PO_DAYS = {weekly: 7, fortnightly: 14, monthly: 30.44};
+const poNext = (d, every) => every === 'monthly' ? addMonthsToDate(d, 1) : addDays(d, PO_DAYS[every] || 14);
+const poMinPay = b => Math.max(25, b * 0.03); // a typical card minimum: 3% of the balance, at least $25 (an assumption, banks differ)
+const poCards = () => accounts.filter(a => a.payoff);
+let poExtra = 0; // the "what if I paid this much more" box on the Overview card
+// Walk the balance down payment by payment. Interest builds daily at rate/365 and is added just before each payment.
+function poSim(bal, rate, every, pay, first, today) {
+  const pts = [{d: today, bal: round2(bal)}];
+  let d = first, prev = today, b = round2(bal), interest = 0, n = 0, last = 0, never = false;
+  while (b > 0.004 && n < 600) {
+    const i = round2(b * (rate || 0) / 100 * Math.max(0, daysBetween(prev, d)) / 365);
+    b = round2(b + i); interest = round2(interest + i);
+    const p = Math.min(b, round2(typeof pay === 'function' ? pay(b) : pay));
+    if (p <= i + 0.004 && b > p + 0.004) { never = true; break; } // the payment doesn't even cover the interest
+    b = round2(b - p); n++; last = p; pts.push({d, bal: b}); prev = d; d = poNext(d, every);
+  }
+  return {n, interest, end: pts.at(-1).d, last, pts, never: never || b > 0.004};
+}
+// The smallest payment that clears the card by a date (null if that date is before the first payment)
+function poNeed(bal, rate, every, by, first, today) {
+  if (!(bal > 0.004)) return 0;
+  if (by < first) return null;
+  let lo = 0.01, hi = bal * 2 + 100;
+  for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2, s = poSim(bal, rate, every, mid, first, today); if (!s.never && s.end <= by) hi = mid; else lo = mid; }
+  return Math.ceil(hi * 100) / 100;
+}
+// Everything the Overview card and the setup box need for one card. extra: more per payment, for the what-if.
+function poState(a, extra = 0, cfg = a.payoff) {
+  if (!cfg) return null;
+  const today = todayStr(), owed = round2(Math.max(0, -(acctBalance(a.id, dataEnd()) || 0))), rate = Math.max(0, +cfg.rate || 0), every = PO_DAYS[cfg.every] ? cfg.every : 'fortnightly';
+  let first = /^\d{4}-\d{2}-\d{2}$/.test(cfg.first || '') ? cfg.first : addDays(today, 7);
+  for (let i = 0; i < 400 && first < today; i++) first = poNext(first, every);
+  let pay = null;
+  if (cfg.mode === 'min') pay = poMinPay;
+  else if (cfg.mode === 'date') pay = poNeed(owed, rate, every, cfg.by || '', first, today);
+  else pay = +cfg.amount > 0 ? +cfg.amount : null;
+  if (pay === null || (typeof pay === 'number' && pay <= 0 && owed > 0.004)) return {a, cfg, owed, rate, every, first, today, err: cfg.mode === 'date' ? 'Pick a date after the first payment.' : 'Enter an amount to pay each time.'};
+  const base = pay, withExtra = typeof pay === 'function' ? b => pay(b) + extra : pay + extra;
+  return {a, cfg, owed, rate, every, first, today, payNow: round2(typeof base === 'function' ? base(owed) : base), pay: base, payX: withExtra, extra, sim: poSim(owed, rate, every, withExtra, first, today),
+    plain: extra ? poSim(owed, rate, every, base, first, today) : null};
+}
+const poCan = s => s && !s.err && !s.sim.never;
+const poEvery = every => ({weekly: 'week', fortnightly: 'fortnight', monthly: 'month'}[every] || 'fortnight');
+function poSummary(s) { // one plain sentence
+  if (!s) return '';
+  if (s.err) return s.err;
+  if (s.owed < 0.005) return 'Nothing owed on the card right now.';
+  if (s.sim.never) return `A payment of ${fmt2(s.payNow)} doesn't cover the interest, so the card would never be paid off. Pay more.`;
+  return `${s.cfg.mode === 'min' ? 'Paying the bank minimum (about 3%, at least $25)' : `${fmt2(s.payNow)} every ${poEvery(s.every)}`}: ${s.sim.n} payment${s.sim.n === 1 ? '' : 's'}, paid off about <b>${dayLabel(s.sim.end)}</b>${s.rate > 0 ? `, ${fmt2(s.sim.interest)} interest` : ''}.`;
+}
+// What you paid into the card since the plan began, and how the balance looked week by week
+const poPaid = a => round2(txns.filter(t => acctOf(t) === a.id && t.amount > 0 && t.date >= (a.payoff.startDate || '')).reduce((s, t) => s + t.amount, 0));
+function poHistory(a, weeks = 12) {
+  const end = dataEnd(), out = [];
+  for (let w = weeks; w >= 0; w--) { const d = addDays(end, -7 * w); out.push({d, bal: round2(Math.max(0, -(acctBalance(a.id, d) || 0)))}); }
+  return out;
+}
+function poChart(s, sx) {
+  const hist = poHistory(s.a).filter(p => p.d >= (s.cfg.startDate ? addDays(s.cfg.startDate, -14) : '')).slice(-13), T0 = hist[0] ? hist[0].d : s.today;
+  const x = d => daysBetween(T0, d), keep = (pts, max = 60) => { const k = Math.ceil(pts.length / max); return pts.filter((_, i) => i % k === 0 || i === pts.length - 1); };
+  const plan = keep(s.sim.pts), past = hist.filter(p => p.d <= s.today), joined = [...past.slice(0, -1), ...plan.map((p, i) => i === 0 ? {d: s.today, bal: s.owed} : p)];
+  const o = {xs: joined.map(p => x(p.d)), ys: joined.map(p => p.bal), now: Math.max(0, past.length - 1), label: `${s.a.name} balance: what it was and the plan ahead`,
+    tips: joined.map((p, i) => `<b>${dayLabel(p.d)}</b><br>${fmt2(p.bal)} owed${i > Math.max(0, past.length - 1) ? ' (plan)' : ''}`),
+    ticks: [0, 1, 2, 3].map(i => joined[Math.round(i * (joined.length - 1) / 3)]).map(p => [x(p.d), shortDay(p.d)])};
+  if (sx && sx.extra && !sx.sim.never) { const w = keep(sx.sim.pts); o.xs2 = w.map(p => x(p.d)); o.ys2 = w.map(p => p.bal); }
+  return lineChart(o);
+}
+const poSizes = s => { const b = typeof s.pay === 'function' ? 100 : s.pay, r5 = v => Math.max(5, Math.round(v / 5) * 5); return [...new Set([r5(b * 0.5), round2(b), r5(b * 1.5), r5(b * 2)])].sort((p, q) => p - q); };
+function poTableHTML(s) { // the same card at four payment sizes
+  const rows = poSizes(s).map(p => ({p, r: poSim(s.owed, s.rate, s.every, p, s.first, s.today)})), cur = round2(typeof s.pay === 'function' ? 0 : s.pay);
+  const base = rows.find(x => x.p === cur) || rows[0];
+  return `<table style="margin-top:6px"><tr class="muted"><th style="text-align:left">Each ${poEvery(s.every)}</th><th style="text-align:left">Paid off</th><th class="num">Payments</th>${s.rate > 0 ? '<th class="num">Interest</th>' : ''}</tr>`
+    + rows.map(({p, r}) => `<tr${p === cur ? ' style="font-weight:600"' : ''}><td>${fmt2(p)}${p === cur ? ' <span class="muted">(your plan)</span>' : ''}</td><td>${r.never ? 'never' : shortDay(r.end)}</td><td class="num">${r.never ? '–' : r.n}</td>`
+      + (s.rate > 0 ? `<td class="num">${r.never ? '–' : fmt2(r.interest)}${p > base.p && !r.never && !base.r.never && base.r.interest - r.interest > 0.5 ? `<span class="pos"> (saves ${fmt2(base.r.interest - r.interest)})</span>` : ''}</td>` : '') + '</tr>').join('') + '</table>';
+}
+function poWhatHTML(a) { // the result of the "pay extra" box
+  const s = poState(a, poExtra);
+  if (!poCan(s) || !s.extra) return '<span class="muted">Type an extra amount to see how much sooner you would be clear.</span>';
+  const p = s.plain, wk = Math.round((daysBetween(s.sim.end, p.end)) / 7);
+  return `Paying <b>${fmt2(s.extra)}</b> more each ${poEvery(s.every)} (${fmt2(s.payNow + s.extra)} in all): paid off <b>${shortDay(s.sim.end)}</b>${wk > 0 ? `, ${wk} week${wk === 1 ? '' : 's'} sooner` : ''}${s.rate > 0 && p.interest - s.sim.interest > 0.005 ? `, and ${fmt2(p.interest - s.sim.interest)} less interest` : ''}.`;
+}
+function payoffHTML() {
+  const cards = poCards(); if (!cards.length) return '';
+  return `<div class="card" id="poCard"><h2>Card pay-off</h2>` + cards.map(a => {
+    const s = poState(a, 0), c = a.payoff; if (!s) return ''; // your plan as it is; the extra only feeds the what-if line
+    const start = Math.max(c.startBal || 0, s.owed), pct = start > 0 ? Math.max(0, Math.min(100, Math.round((start - s.owed) / start * 100))) : 100, paid = poPaid(a);
+    const late = poCan(s) && c.endAt ? Math.round(daysBetween(c.endAt, s.sim.end) / 7) : 0;
+    const status = s.owed < 0.005 ? '<span class="pos">✓ Paid off 🎉</span>' : late >= 1 ? `<span style="color:var(--warn)">Behind: new spending has pushed it back about ${late} week${late === 1 ? '' : 's'}.</span>` : poCan(s) ? '<span class="pos">On track.</span>' : '';
+    const mile = s.owed < 0.005 ? '' : pct >= 75 ? 'Three quarters done, nearly there.' : pct >= 50 ? 'More than halfway.' : pct >= 25 ? 'A quarter of the way.' : '';
+    return `<div style="margin:10px 0 18px" data-poid="${esc(a.id)}">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${esc(a.name)}</b><span>${fmt2(s.owed)} owed${start > s.owed + 0.005 ? ` · ${fmt2(start - s.owed)} cleared` : ''}</span></div>
+      <div class="bar" style="height:8px;border:1px solid var(--border);border-radius:4px;margin:6px 0;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--good)"></div></div>
+      <div class="muted" style="font-size:13px">${poSummary(s)} ${status} ${mile ? `<span>${mile}</span>` : ''}</div>
+      ${paid > 0 ? `<div class="muted" style="font-size:13px">Paid into the card since ${shortDay(c.startDate)}: ${fmt2(paid)}.</div>` : ''}
+      ${poCan(s) && s.owed > 0.005 ? `<div style="margin-top:8px">${poChart(s, poExtra > 0 ? poState(a, poExtra) : null)}<div class="muted" style="font-size:12px">Solid: what it was. Dashed: your plan. Dotted orange: with the extra.</div></div>
+        <div style="margin-top:10px"><label>What if I paid <span class="muted">more each ${poEvery(s.every)}</span>? $ <input type="number" min="0" step="5" class="poExtra" value="${poExtra || ''}" placeholder="0" style="width:90px"></label>
+          <div class="poWhat" style="margin-top:6px;font-size:14px">${poWhatHTML(a)}</div></div>
+        <details class="moredet" style="margin-top:8px"><summary>Compare payment sizes</summary>${poTableHTML(s)}${s.rate > 0 ? '' : '<p class="muted" style="font-size:12px;margin:6px 0 0">No interest rate set, so no interest is counted. Add it in the plan to see the cost.</p>'}</details>` : ''}
+      <div style="margin-top:10px"><button type="button" class="btn sm" data-poopen="${esc(a.id)}">Change the plan</button></div></div>`;
+  }).join('') + '</div>';
+}
+// The setup box
+let poAcct = null;
+const poFromBox = () => ({mode: $('#poMode').value, amount: round2(parseFloat($('#poAmt').value)) || 0, by: $('#poBy').value, every: $('#poEvery').value, first: $('#poFirst').value, rate: Math.max(0, parseFloat($('#poRate').value) || 0)});
+function poBoxUpdate() {
+  if (!poAcct) return;
+  const m = $('#poMode').value; $('#poAmtWrap').style.display = m === 'amount' ? '' : 'none'; $('#poByWrap').style.display = m === 'date' ? '' : 'none'; // style, not [hidden]: a label's display wins over [hidden]
+  const s = poState(poAcct, 0, {...poFromBox()});
+  $('#poMsg').innerHTML = s.owed < 0.005 ? 'Nothing is owed on the card right now. You can still set the plan up for when it is used.' : poSummary(s);
+  $('#poOk').disabled = !!s.err || s.sim.never;
+}
+function openPayoff(id) {
+  const a = accounts.find(x => x.id === id); if (!a) return;
+  poAcct = a; const c = a.payoff || {}, today = todayStr(); let wed = addDays(today, 1); while (new Date(wed + 'T00:00:00Z').getUTCDay() !== 3) wed = addDays(wed, 1); // next Wednesday: NZDF payday
+  $('#poTitle').textContent = `Pay off ${a.name}`;
+  $('#poMode').value = c.mode || 'amount'; $('#poAmt').value = c.amount || ''; $('#poBy').value = c.by || addDays(today, 365);
+  $('#poEvery').value = c.every || 'fortnightly'; $('#poFirst').value = c.first || wed; $('#poRate').value = c.rate || '';
+  $('#poDel').hidden = !a.payoff; poBoxUpdate(); const d = $('#poDlg'); d.returnValue = ''; d.showModal();
+}
+// The plan's repayment, kept as a bill so Until payday, the funding plan and "Left to spend" all set the money aside
+function poSyncBill(a, s) {
+  const id = 'cardpay-' + a.id, cat = KIND['Credit Card'] ? 'Credit Card' : '';
+  billCfg.added = billCfg.added.filter(x => x.id !== id);
+  if (s) billCfg.added = [...billCfg.added, {id, name: `${a.name} payment`, amount: round2(s.payNow), out: true, rhythm: s.every, date: s.first, cat, cardPay: a.id}];
+  store.set('bills', billCfg);
+}
+$('#poDlg').addEventListener('close', () => {
+  const v = $('#poDlg').returnValue, a = poAcct; poAcct = null; if (!a) return;
+  if (v === 'remove') { delete a.payoff; poSyncBill(a, null); }
+  else if (v === 'ok') {
+    const cfg = poFromBox(), s = poState(a, 0, cfg); if (s.err || s.sim.never) return;
+    const old = a.payoff || {};
+    a.payoff = {...cfg, startBal: old.startBal && old.startDate ? old.startBal : s.owed, startDate: old.startDate || s.today, endAt: s.sim.end};
+    a.carry = true; // paying over time: what's owed isn't taken off your money, the repayments are
+    if (s.owed > 0.005) poSyncBill(a, s);
+  } else return;
+  store.set('accounts', accounts); refresh();
+});
+for (const sel of ['#poMode', '#poAmt', '#poBy', '#poEvery', '#poFirst', '#poRate']) $(sel).addEventListener('input', poBoxUpdate);
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-poopen]'); if (b) openPayoff(b.dataset.poopen); });
+document.addEventListener('input', e => { // the what-if box: update the sentence and the chart's second line without redrawing the page
+  const i = e.target.closest && e.target.closest('.poExtra'); if (!i) return;
+  poExtra = Math.max(0, parseFloat(i.value) || 0); renderOverview(); const n = document.querySelector('.poExtra'); if (n) { n.focus(); try { n.setSelectionRange(n.value.length, n.value.length); } catch (e2) {} }
 });
 function weekLeftHTML() { // the same headline number as the Overview: what's left to spend this week
   const wa = weekAllowance(); if (!wa) return '';
