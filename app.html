@@ -1733,7 +1733,7 @@ function offsetForecast(f) {
   if (!k || !f.pts.length) return null;
   const {a, d} = L, end = f.pts.at(-1).date, today = f.today;
   const vals = (worthNow(today) || {values: {}}).values, offset = (d.offset || []).reduce((s, id) => s + (+vals[id] || 0), 0);
-  const draws = [...f.topups.map(t => ({date: t.date, amount: t.amount, what: 'a ' + fmt(t.amount) + ' top-up'})),
+  const draws = [...f.topups.map(t => ({date: t.date, amount: t.amount, what: 'a ' + fmt(t.amount) + ' top-up', topup: true})),
     ...f.events.filter(e => e.outside && e.amount < 0).map(e => ({date: e.date < today ? today : e.date, amount: -e.amount, what: e.name + ' (' + fmt2(-e.amount) + ')'}))]; // plain text: escape it when showing it
   const limitOn = x => d.limitAt && x > d.limitAt ? loanForward(d, d.limitAt, d.limit, x, 0).bal : d.limit;
   let bal = k.bal;
@@ -3667,7 +3667,9 @@ function renderBudgets() {
   const outInfo = c => {
     const bs = outBillsOf(c); if (!bs.length) return null;
     const b = bs[0], monthEnd = addDays(addMonths(m, 1) + '-01', -1), n = bs.reduce((q, x) => q + billDates(x, today, monthEnd).length, 0), of = ofInfo();
-    const short = of && of.short && of.short.date <= b.next ? of.short : null, pt = of && of.pts.find(q => q.date === b.next);
+    // The safe version: what's available today less the bills paid from it up to this one (not the guessed top-ups; it ignores how the limit and the loan move at each repayment)
+    const left = of ? round2(of.now - of.draws.filter(w => !w.topup && w.date <= b.next).reduce((s, w) => s + w.amount, 0)) : null;
+    const short = left !== null && left < -0.005 ? {amount: -left, date: b.next} : null, pt = left !== null && !short ? {avail: left} : null;
     const bar = '<span class="tbar seg" title="Paid from your offset, not from this budget. No budget money goes to it."><span class="payd" style="width:100%"></span></span>';
     const head = short ? `<b class="warnt">! Offset ${fmt2(short.amount)} short on ${shortDay(short.date)}</b>` : '<b class="paycov" title="Paid from your offset, not from this budget">✓ From offset</b>';
     const due = `${fmt2(b.amount)} due ${dayLabel(b.next)}${n > 1 ? ` (${n} this month)` : ''}`;
