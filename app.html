@@ -2989,11 +2989,27 @@ function targetInfo(c, m, row) {
   const bl = allBills();
   let e = tiMemo.get(row);
   if (!e || e.bl !== bl) tiMemo.set(row, e = {bl, map: new Map()});
-  const k = c + '|' + m + '|' + JSON.stringify(plan.targets[c] || null);
+  const k = c + '|' + m + '|' + todayStr() + '|' + priorityOf(c) + '|' + JSON.stringify(plan.targets[c] || null);
   if (e.map.has(k)) return e.map.get(k);
   const r = targetInfoRaw(c, m, row);
   e.map.set(k, r);
   return r;
+}
+// Weekly targets, this month only: the weeks that still need money. A week that has already finished never asks for any (the
+// week you're in counts, and so does one that started last month). Nice-to-have categories (priority 3) only ever top up the
+// week you're in, so leftovers don't build up. Essentials and the rest may be funded for the weeks still to come.
+const isTopUpCat = c => priorityOf(c) === 3;
+function weeksLeft(m, day) {
+  const cur = weekStartOn(todayStr(), day), end = addDays(addMonths(m, 1) + '-01', -1), starts = [];
+  for (let d = m + '-01'; d <= end; d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day && d >= cur) starts.push(d);
+  if (cur < m + '-01') starts.unshift(cur);
+  return {cur, starts};
+}
+// What the category had when this week began: what's in it now plus what has gone out of it since the week started
+function weekStartMoney(c, row, cur) {
+  const today = todayStr();
+  const spent = -txns.filter(t => t.date >= cur && t.date <= today && !isInternal(t)).reduce((s, t) => s + partsOf(t).reduce((q, p) => q + (p.cat === c ? p.amount : 0), 0), 0);
+  return round2((row.available[c] || 0) + spent);
 }
 function targetInfoRaw(c, m, row) {
   const t = plan.targets[c];
@@ -3006,8 +3022,18 @@ function targetInfoRaw(c, m, row) {
     return {label: `Top up to ${fmt(t.amount)}`, need, under: Math.max(0, round2(need - asg)), progress: Math.min(1, Math.max(0, (carry + asg) / t.amount))};
   }
   if (t.type === 'weekly') {
-    const day = Number.isInteger(t.day) ? t.day : SETTINGS.weekStartDay, n = weekdaysIn(m, day), need = round2(t.amount * n);
+    const day = Number.isInteger(t.day) ? t.day : SETTINGS.weekStartDay;
+    if (m === thisMonth()) {
+      const {cur, starts} = weeksLeft(m, day), top = isTopUpCat(c), n = top ? Math.min(1, starts.length) : starts.length, need = round2(t.amount * n);
+      const had = weekStartMoney(c, row, cur);
+      return {label: top ? `Top up to ${fmt(t.amount)} each week` : `${fmt(t.amount)} a week (${n} week${n === 1 ? '' : 's'} still to fund this month)`, need, under: Math.max(0, round2(need - had)), progress: need > 0 ? Math.min(1, Math.max(0, had / need)) : 1};
+    }
+    const n = weekdaysIn(m, day), need = round2(t.amount * n);
     return {label: `${fmt(t.amount)} a week (${n} ${WEEKDAYS[day]}s this month)`, need, under: Math.max(0, round2(need - asg)), progress: need > 0 ? Math.min(1, Math.max(0, asg / need)) : 1};
+  }
+  if (t.type === 'monthly' && isTopUpCat(c)) { // nice to have: top up to the amount, what's left over from last month counts
+    const need = Math.max(0, round2(t.amount - carry));
+    return {label: `Top up to ${fmt(t.amount)} each month`, need, under: Math.max(0, round2(need - asg)), progress: Math.min(1, Math.max(0, (carry + asg) / t.amount))};
   }
   if (t.type !== 'byDate') return {label: `${fmt(t.amount)} every month`, need: t.amount, under: Math.max(0, round2(t.amount - asg)), progress: Math.min(1, Math.max(0, asg / t.amount))};
   const {due, overdue} = cycleDue(c, t, m); // a one-off whose month has passed, or a repeating one not paid yet: the full amount is asked for now, and it says so
@@ -3238,7 +3264,7 @@ function fundingPlan(m, P) {
   for (const s of srcs) s.left = s.amount;
   const payDays = srcs.filter(s => !s.now).map(s => s.date);
   const bills = allBills(today).filter(b => b.out && b.cat && !b.outside && !b.done);
-  const chunks = [], spareIn = {}, clamp = d => d < today ? today : d > end ? end : d; // spareIn: money sitting in a category that its bills don't need
+  const chunks = [], spareIn = {}, topNext = {}, clamp = d => d < today ? today : d > end ? end : d; // spareIn: money sitting in a category that its bills don't need
   const add = (c, amount, due, kind, what, sortDue = due) => { amount = round2(amount); if (amount > 0.005) chunks.push({c, amount, left: amount, due: clamp(due), sortDue: clamp(sortDue), kind, what, got: []}); };
   for (const c of P.budgetCats) {
     const t = targetInfo(c, m, row), tg = plan.targets[c] || {};
@@ -3259,9 +3285,12 @@ function fundingPlan(m, P) {
     for (const x of shorts) { const v = Math.min(rest, x.short); add(c, v, x.due, 'bill', x.name); rest = round2(rest - v); }
     if (rest < 0.005) continue;
     if (tg.type === 'weekly' && tg.amount > 0) { // the weeks not covered yet are the last ones in the month
-      const day = Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay, starts = [];
-      for (let d = m + '-01'; d <= end; d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day) starts.push(d);
-      for (const d of starts.reverse()) { if (rest < 0.005) break; const v = Math.min(rest, tg.amount); add(c, v, d, 'spend', `week of ${shortDay(d)}`, addDays(d, 6)); rest = round2(rest - v); }
+      const day = Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay, starts = weeksLeft(m, day).starts; // weeks that have finished are never funded
+      if (isTopUpCat(c)) { // nice to have: only this week's top-up. The next week is just a reminder, its amount depends on what's left
+        if (starts[1]) topNext[c] = {date: starts[1], amount: tg.amount};
+        starts.length = Math.min(starts.length, 1);
+      } else starts.reverse();
+      for (const d of starts) { if (rest < 0.005) break; const v = Math.min(rest, tg.amount); add(c, v, d, 'spend', `week of ${shortDay(d)}`, addDays(d, 6)); rest = round2(rest - v); }
     } else if (tg.type === 'monthly' && !dated.length) { // day-to-day spending: shared over the time until each pay
       // What's already assigned this month counts towards the soonest stretch first, so pressing Fund targets again adds nothing
       const cuts = [today, ...payDays], days = daysBetween(today, end) + 1, asg = Math.max(0, row.assigned[c] || 0), total = round2(rest + asg);
@@ -3317,7 +3346,7 @@ function fundingPlan(m, P) {
     const xs = T(n), sum = f => round2(xs.reduce((s, x) => s + f(x), 0));
     return {n, want: sum(x => x.amount), late: sum(x => x.got.filter(g => g.late).reduce((s, g) => s + g.amount, 0)), gap: sum(x => x.left)};
   });
-  return {m, srcs, chunks, by, tiers, spare: round2(srcs.reduce((s, x) => s + x.left, 0)), spareNow: srcs[0].left};
+  return {m, srcs, chunks, by, tiers, topNext, spare: round2(srcs.reduce((s, x) => s + x.left, 0)), spareNow: srcs[0].left};
 }
 // How important each category is, for the funding plan. Set on the Budget tab (click a category). Otherwise from its group.
 const PRIORITIES = ['', 'Bills & commitments', 'Essentials', 'Nice to have', 'Build up'];
@@ -3678,6 +3707,8 @@ function renderBudgets() {
     if (r.now > 0.005) bits.push(`<button type="button" class="btn sm sugg" data-sugg="${esc(c)}" title="From Ready to Assign (${fmt2(Math.max(0, row.rta))} available)">Put aside ${fmt2(r.now)}</button>`);
     if (nx) bits.push(`<span class="muted">${r.now > 0.005 ? 'then ' : ''}${fmt2(nx.amount)} on ${shortDay(nx.date)}${r.later.length > 1 ? ' …' : ''}</span>`);
     if (late > 0.005) bits.push(`<b class="warnt">! ${fmt2(late)} late</b>`);
+    const tn = FP.topNext && FP.topNext[c];
+    if (tn) bits.push(`<span class="muted" title="Next week it only needs topping up to ${fmt2(tn.amount)}, whatever is left over.">${r.now > 0.005 ? 'then ' : ''}top up to ${fmt2(tn.amount)} on ${shortDay(tn.date)}</span>`);
     if (gap > 0.005) bits.push(`<b class="warnt">! ${fmt2(gap)} short</b>`);
     if (wont > 0.005) bits.push(`<span class="muted">${fmt2(wont)} won't fit</span>`);
     for (const mv of r.moves) bits.push(`<button type="button" class="btn sm take" data-take="${esc(mv.from)}" data-to="${esc(c)}" data-amt="${mv.amount}">Take ${fmt2(mv.amount)} from ${esc(mv.from)}</button>`);
