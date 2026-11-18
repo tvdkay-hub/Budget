@@ -3123,10 +3123,40 @@ function autoAssign(kind, m, P) {
   if (kind === 'paid' && m === plan.start && plan.cutoff >= m + '-01') { includeEarlier(); P = computePlan(m); }
   const row = P.by[m], prevM = addMonths(m, -1);
   if (kind === 'reset') {
-    ask(`Clear everything assigned in ${monthLabel(m)}?`, 'Clear it').then(yes => { if (yes) { delete plan.assigned[m]; savePlan(); refresh(); } });
+    ask(`Unassign everything in ${monthLabel(m)}? It all goes back to Ready to Assign.`, 'Unassign all').then(yes => { if (yes) { delete plan.assigned[m]; savePlan(); refresh(); } });
     return;
   }
   if (kind === 'targets') return fundTargets(m, P);
+  if (kind === 'bills' || kind === 'goals') { // fill only bills (tier 1) or only savings goals, most urgent first, within Ready to Assign
+    const list = kind === 'bills' ? fundOrder(m, P).filter(x => priorityOf(x.c) === 1)
+      : goalList().filter(c => P.budgetCats.includes(c)).map(c => ({c, want: (targetInfo(c, m, row) || {}).under || 0})).filter(x => x.want > 0.005);
+    let have = Math.max(0, round2(row.rta)), given = 0;
+    for (const x of list) {
+      if (have < 0.005) break;
+      const v = round2(Math.min(x.want, have));
+      setAssigned(m, x.c, round2((row.assigned[x.c] || 0) + v));
+      have = round2(have - v); given = round2(given + v);
+    }
+    const word = kind === 'bills' ? 'bills' : 'savings goals';
+    if (given) toast(`Assigned ${fmt2(given)} to ${word}`);
+    else toast(list.length ? `Nothing in Ready to Assign to give your ${word}` : `Your ${word} don't need any more money`);
+    return;
+  }
+  if (kind === 'unused' || kind === 'trim') { // take unspent money back to Ready to Assign
+    const billCats = new Set(allBills().filter(b => b.out && b.cat && !b.outside).map(b => b.cat)), goals = new Set(goalList());
+    let back = 0, n = 0;
+    for (const c of P.budgetCats) {
+      const cur = row.assigned[c] || 0, avail = row.available[c] || 0;
+      if (cur <= 0.005 || avail <= 0.005) continue;
+      let take = 0;
+      if (kind === 'unused') { if (!plan.targets[c] && !billCats.has(c) && !goals.has(c)) take = Math.min(cur, avail); }
+      else if (plan.targets[c]) { const t = targetInfo(c, m, row); if (t) take = Math.min(cur - t.need, avail); }
+      take = round2(take);
+      if (take > 0.005) { setAssigned(m, c, round2(cur - take)); back = round2(back + take); n++; }
+    }
+    toast(n ? `Took back ${fmt2(back)} from ${n} ${n === 1 ? 'category' : 'categories'}` : kind === 'unused' ? 'No unused money to take back' : 'Nothing is over its target');
+    return;
+  }
   for (const c of P.budgetCats) {
     const cur = row.assigned[c] || 0;
     let v = 0;
@@ -3760,7 +3790,7 @@ function renderBudgets() {
       <span><b>✕ ${overs.length} ${overs.length === 1 ? 'category is' : 'categories are'} overspent by ${fmt2(overBy)}.</b> ${row.rta > 0.005
         ? `That money's already spent, so ${row.rta - overBy > 0.005 ? `only ${fmt2(row.rta - overBy)} of Ready to Assign is really free` : 'none of Ready to Assign is really free'}.`
         : 'Press <b>Cover it</b> on the red rows to move money in from another category.'} <span class="muted">Anything not covered by the end of the month comes off next month's Ready to Assign.</span></span>
-      ${row.rta > 0.005 ? `<button class="btn sm primary" data-auto="paid" title="Assigns each red category exactly what's been spent in it">Cover what's been spent (${fmt2(overBy)})</button>` : ''}</div>` : '';
+      ${row.rta > 0.005 ? `<button class="btn sm primary" id="coverAll" data-auto="paid" title="Assigns each red category exactly what's been spent in it">Cover what's been spent (${fmt2(overBy)})</button>` : ''}</div>` : '';
   el.innerHTML = `
     <div class="card rta ${st[0]} tone-${{todo: 'warn', over: 'bad'}[st[0]] || 'good'}">
       <div><div class="muted">Ready to Assign · ${monthLabel(m)}${infoBtn("Money you have that has not been given a job yet. Aim for $0: give every dollar to a bill, a spending category or a goal.")}</div><div class="amt">${fmt2(row.rta)}</div></div>
@@ -3768,6 +3798,25 @@ function renderBudgets() {
       <div class="rlines">
         <div class="rline"><span><b>${st[1]} ${st[2]}</b>${under > 0.005 ? ` <span class="muted">Targets still need ${fmt2(under)} this month.</span>` : ''}</span></div>
         ${cardLineHTML()}${overLine}${row.rta < -0.005 ? `<div class="rline over"><span><b>✕ You've given out ${fmt2(-row.rta)} more than you have.</b> Take some back from a category (Move money), or it comes out of your next pay.</span></div>` : ''}${planSumHTML(FP) ? `<details class="moredet" style="margin:6px 0"><summary>Details: how the rest of the month works out</summary>${planSumHTML(FP)}</details>` : ''}${payWaitHTML(m)}</div>
+      <details class="moredet" id="autoCard" style="margin:6px 0" ${localStorage.getItem(PK + 'autoOpen') === '1' ? 'open' : ''}><summary><b>Auto-assign</b> <span class="muted" style="font-size:13px">· fill or empty the Assigned column in one click</span></summary>
+        <p class="muted" style="margin:6px 0">Fill only uses what's in Ready to Assign. "Same as / Spent / Average" only fill empty categories. Unassign sends unspent money back to Ready to Assign (Undo works on all of these).</p>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin:6px 0 4px">Assign</div>
+        <div class="btnlist">
+          <button class="btn sm" data-auto="paid" title="Covers anything that's been spent but wasn't budgeted for">Already paid</button>
+          <button class="btn sm" data-auto="targets" ${row.rta > 0.005 ? '' : 'disabled'} title="Tops up what your targets still need: bills first, then essentials, nice-to-haves and build-ups">Fund targets (${fmt2(Math.min(under, Math.max(0, row.rta)))})</button>
+          <button class="btn sm" data-auto="bills" ${row.rta > 0.005 ? '' : 'disabled'} title="Only the Bills priority, soonest due first">Bills only</button>
+          <button class="btn sm" data-auto="goals" ${row.rta > 0.005 ? '' : 'disabled'} title="Tops up your Savings goals, in your goal order">Fund goals</button>
+          <button class="btn sm" data-auto="lastAssigned" title="Copies last month's Assigned into empty categories">Same as last month</button>
+          <button class="btn sm" data-auto="lastSpent" title="Assigns what you spent last month into empty categories">Spent last month</button>
+          <button class="btn sm" data-auto="avgSpent" title="Assigns the 3-month average spent into empty categories">Average spent (3 months)</button>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin:10px 0 4px">Unassign</div>
+        <div class="btnlist">
+          <button class="btn sm" data-auto="unused" title="Categories with no target or bills: unspent money goes back to Ready to Assign">Take back unused</button>
+          <button class="btn sm" data-auto="trim" title="Categories holding more than their target needs: the extra goes back to Ready to Assign">Trim to targets</button>
+          <button class="btn sm danger" data-auto="reset" title="Clears everything assigned this month">Unassign all</button>
+        </div>
+      </details>
       <div class="btnlist">${FP && row.rta > 0.005 ? `<button class="btn primary" id="rtaAuto" title="Bills first, then essentials, then what's left over. You can untick or change anything before it is assigned.">Assign my pay</button>` : ''}<button class="btn" id="rtaRec">Reconcile</button><button class="btn" id="rtaMove">Move money</button><button class="btn" id="rtaDetail" title="Show or hide the extra columns (progress, to go, plan, when)">${budgetLite() ? 'More detail' : 'Less detail'}</button></div>
     </div>
     ${early.n ? `<div class="card info tone-teal"><b>${early.n} payment${early.n === 1 ? '' : 's'} from earlier in ${monthLabel(m)} (${fmt2(early.total)}) ${early.n === 1 ? "isn't" : "aren't"} in this budget yet</b>, because it starts on ${dateLabel(addDays(plan.cutoff, 1))}. <button class="btn sm primary" id="incEarlier">Fill them in as already paid</button><div class="muted" style="margin-top:4px">Ready to Assign stays the same. They just show up as paid, so you can see the whole month.</div></div>` : ''}
@@ -3807,8 +3856,9 @@ function renderBudgets() {
       });
     });
   });
-  const coverAll = el.querySelector('.rta [data-auto]'); // works whether or not a category's panel is open
-  if (coverAll) coverAll.onclick = () => { autoAssign(coverAll.dataset.auto, m, P); renderBudgets(); };
+  // every Auto-assign button (top card, including "Cover what's been spent"); works whether or not a category's panel is open
+  el.querySelectorAll('.rta [data-auto]').forEach(b => b.onclick = () => { autoAssign(b.dataset.auto, m, P); renderBudgets(); });
+  if ($('#autoCard')) $('#autoCard').ontoggle = () => localStorage.setItem(PK + 'autoOpen', $('#autoCard').open ? '1' : '0');
   el.querySelector('table.plan').addEventListener('click', e => {
     if (e.target.closest('[data-hiddenlist]')) { openCats(); return; }
     if (e.target.closest('[data-empty]')) { showEmpty = !showEmpty; localStorage.setItem('budget-show-empty', showEmpty ? '1' : ''); renderBudgets(); return; }
@@ -3919,17 +3969,6 @@ function summaryHTML(m, P, row, under) {
   ${targetsCardHTML(m, P, row, under)}
   ${prioritiesHTML(P)}
   ${billsHTML(m, row)}
-  <div class="card"><h2>Auto-assign</h2>
-    <p class="muted" style="margin-top:0">Fill this month's Assigned column in one click. <b>Already paid</b> covers anything that's been spent but wasn't budgeted for. <b>Fund targets</b> tops up what your targets still need, using only what's in Ready to Assign: bills first, then essentials, nice-to-haves and build-ups (see Priorities). The others only fill categories that are still empty.</p>
-    <div class="btnlist">
-      <button class="btn sm" data-auto="paid">Already paid</button>
-      <button class="btn sm" data-auto="targets" ${row.rta > 0.005 ? '' : 'disabled title="Nothing in Ready to Assign yet"'}>Fund targets (${fmt2(Math.min(under, Math.max(0, row.rta)))})</button>
-      <button class="btn sm" data-auto="lastAssigned">Same as last month</button>
-      <button class="btn sm" data-auto="lastSpent">Spent last month</button>
-      <button class="btn sm" data-auto="avgSpent">Average spent (3 months)</button>
-      <button class="btn sm danger" data-auto="reset">Clear this month</button>
-    </div>
-  </div>
   <div class="card"><h2>Budget health</h2>
     ${kv('Age of money', aom == null ? '—' : aom + ' days')}
     <p class="muted" style="margin:4px 0 12px">${aomPrev == null ? 'How old your money is when you spend it.' : `A month earlier: ${aomPrev} days.`} Aim for 30+ days. That means you're living on last month's income, not this week's pay.</p>
@@ -3970,7 +4009,6 @@ function bindSummary(m, P) {
   if ($('#prioCard')) $('#prioCard').ontoggle = () => { prioOpen = $('#prioCard').open; };
   document.querySelectorAll('[data-prio]').forEach(s => s.onchange = () => { setPriority(s.dataset.prio, +s.value || 0); renderBudgets(); });
   $('#sumRec').onclick = () => openReconcile();
-  document.querySelectorAll('[data-auto]').forEach(b => b.onclick = () => { autoAssign(b.dataset.auto, m, P); renderBudgets(); });
   document.querySelectorAll('[data-tguse]').forEach(b => b.onclick = () => { useSuggested(b.dataset.tguse, m, P); renderBudgets(); });
   if ($('#payAssign')) $('#payAssign').onclick = () => { assignPayday(m, P.by[m]); renderBudgets(); };
   $('#newCatBtn').onclick = () => openNewCat({group: 'Savings goals'});
