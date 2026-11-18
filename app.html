@@ -1707,6 +1707,26 @@ function offsetLoan() {
   const a = worth.accounts.find(x => !x.closed && x.owe && (wDet(x.id) || {}).limit > 0);
   return a ? {a, d: wDet(a.id)} : null;
 }
+// The offset loan even before it has a limit: the one with a limit saved, else one called "offset", else one whose number ends -091
+function offsetLoanAny() {
+  if (!FAMILY) return null;
+  const owed = worth.accounts.filter(x => !x.closed && x.owe);
+  return offsetLoan()?.a || owed.find(x => /offset/i.test(x.name)) || owed.find(x => /-0?91$/.test((wDet(x.id) || {}).num || '')) || null;
+}
+// Tim types what his bank says is available to draw today; the limit behind it is that plus what's owed today (the loan worked
+// forward from its last known balance, less offset savings), saved like the Net worth Details limit. {ok: true} or {msg}
+function setOffsetAvailable(avail, today = todayStr()) {
+  const a = offsetLoanAny();
+  if (!a) return {msg: 'There is no offset loan on the Net worth tab yet. Add it there (a loan called "Offset Loan"), then enter this again.'};
+  const k = worthKnown(a.id);
+  if (!k) return {msg: `${a.name} has no balance yet. Enter its balance on the Net worth tab (or load its statement CSV), then enter this again.`};
+  const d = {...(wDet(a.id) || {})}, vals = (worthNow(today) || {values: {}}).values, offset = (d.offset || []).reduce((s, id) => s + (+vals[id] || 0), 0);
+  const owed = k.date >= today ? k.bal : loanForward(d, k.date, k.bal, today, offset).bal;
+  Object.assign(d, {limit: round2(avail + owed), limitAt: today, avail: {amt: round2(avail), date: today}});
+  worth.details = {...(worth.details || {}), [a.id]: JSON.parse(JSON.stringify(d))};
+  store.set('worth', worth);
+  return {ok: true};
+}
 // Day by day over the forecast: available to draw, after the predicted top-ups and the bills paid from outside (like the rates)
 function offsetForecast(f) {
   const L = f && offsetLoan(), k = L && worthKnown(L.a.id);
@@ -3708,7 +3728,7 @@ function renderBudgets() {
     else if (t && t.under > 0.005 && !paidByPay(FP, c)) pill = 'under';
     else if (av > 0.005) pill = 'has';
     return `<tr class="cat${selCat === c ? ' sel' : ''}" data-cat="${esc(c)}">
-      <td><button type="button" class="catname" data-catpick="${esc(c)}" aria-expanded="${selCat === c}" title="Show its target, details and transactions">${esc(c)}</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${paceBadge(c)}${metaOf(c, t)}</td>${colsOf(c, t)}
+      <td><button type="button" class="catname" data-catpick="${esc(c)}" aria-expanded="${selCat === c}" title="Show its target, details and transactions">${esc(c)}</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${FAMILY && t && t.outside ? ' <button type="button" class="btn sm" data-offavail title="Type what your bank says is available to draw in the offset now">Update offset</button>' : ''}${paceBadge(c)}${metaOf(c, t)}</td>${colsOf(c, t)}
       <td class="num"><input type="text" inputmode="decimal" class="asg" data-asg="${esc(c)}" value="${row.assigned[c] ? row.assigned[c].toFixed(2) : ''}" placeholder="0.00" title="Type an amount. +50 adds, -20 takes away."></td>
       <td class="num">${fmt2(row.activity[c])}</td>
       <td class="num"><span class="pill ${pill}">${fmt2(av)}</span></td></tr>`;
@@ -5308,6 +5328,9 @@ function forecastHTML(bills) {
     const fo = f.fromOffset;
     h += `<div class="row" style="gap:6px;margin-top:8px;font-size:13px"><label class="muted" for="fcFloor" title="When the balance would drop below this, the forecast adds a top-up from the offset: just enough to last until the next money in, rounded up to $50.">Top up from the offset if it would drop below $</label><input type="text" inputmode="decimal" id="fcFloor" value="${f.floor}" style="width:70px;padding:3px 6px"></div>`
       + (fo.total > 0.005 ? `<p class="muted" style="font-size:13px;margin:6px 0 0">From the offset in the next 6 weeks: ${fo.topups ? `top-ups ${fmt(fo.topups)}` : 'no top-ups'}${fo.outside > 0.005 ? ` + bills paid from outside (like the rates) ${fmt2(fo.outside)} = <b>${fmt2(fo.total)}</b>` : ''}.</p>` : '');
+    const oa = offsetLoanAny(), ov = oa && (wDet(oa.id) || {}).avail;
+    h += `<div class="row" style="gap:6px;margin-top:8px;font-size:13px"><label class="muted" for="fcAvail" title="The 'available to draw' figure from your banking app for the offset. The app works out the loan limit from it.">Offset: available to draw now $</label><input type="text" inputmode="decimal" id="fcAvail" value="${ov ? ov.amt.toFixed(2) : ''}" style="width:90px;padding:3px 6px"></div>`
+      + `<p class="muted" style="font-size:12px;margin:4px 0 0">${ov ? `Entered ${dateLabel(ov.date)}. ` : ''}Update it from your banking app each fortnight.</p>`;
     if (of) h += `<p style="font-size:13px;margin:6px 0 0">${esc(of.name)}: <b>${fmt2(of.now)} available</b> to draw now, lowest about ${fmt(of.low.avail)} around ${dayLabel(of.low.date)}.</p>`
       + `<p class="muted" style="font-size:12px;margin:4px 0 0">Going by your last ${esc(of.name)} statement (${dateLabel(of.asAt)}): draws since then aren't counted, so load a new statement on Load data to keep this exact. The limit comes down a little each repayment.</p>`;
   }
@@ -7181,7 +7204,22 @@ $('#tab-bills').addEventListener('change', e => {
     if (v > 0) plan.topUp = {floor: round2(v)}; else delete plan.topUp;
     savePlan(); refresh(); toast(v > 0 ? `Top-ups from the offset will keep at least ${fmt(v)} in the account` : 'Top-ups from the offset keep the account above $0');
   }
+  else if (e.target.id === 'fcAvail') enterOffsetAvail(e.target.value);
   else if (e.target.id === 'regShow') { regShow = e.target.value; renderBills(); }
+});
+// What the bank says is available to draw in the offset today: from the Bills forecast box or the button by the Rates row
+function enterOffsetAvail(text) {
+  const v = parseFloat(String(text).replace(/[$,\s]/g, ''));
+  if (!(v >= 0)) return toast('Type the amount as a number, like 1328.02');
+  const r = setOffsetAvailable(round2(v));
+  if (!r.ok) return tell(r.msg);
+  refresh(); toast(`Offset: ${fmt2(v)} available to draw, saved`);
+}
+$('#tab-budgets').addEventListener('click', async e => {
+  if (!e.target.closest('[data-offavail]')) return;
+  const oa = offsetLoanAny(), cur = oa && (wDet(oa.id) || {}).avail;
+  const t = await askText(`Offset: how much is available to draw now? (from your banking app)${cur ? `\nLast entered: ${fmt2(cur.amt)} on ${dateLabel(cur.date)}` : ''}`, cur ? cur.amt.toFixed(2) : '');
+  if (t !== null && String(t).trim()) enterOffsetAvail(t);
 });
 $('#tab-budgets').addEventListener('click', e => { if (e.target.closest('#billsCard, #payCard')) billClick(e); });
 // An Overview tile: Budget or Bills tab, this month's transactions (all, money out or money in), or a pay's bill box
