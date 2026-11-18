@@ -3823,6 +3823,7 @@ function bankBalHTML() {
   return `<div class="stat bankbal" data-tip="${esc(`Your ${many ? 'accounts\' balance, all added together' : 'account balance'}, going by your bank data up to ${dayLabel(d)}.`)}"><div class="slabel">Bank balance · ${shortDay(d)}</div><div class="amt"${bal < 0 ? ' style="color:var(--bad)"' : ''}>${fmt2(bal)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
 }
 
+let planSort = 0; // Budget tab: 0 = by group, 1 = Available biggest first, -1 = smallest first
 function renderBudgets() {
   const el = $('#tab-budgets');
   if (!txns.length) { el.innerHTML = `<div class="card empty">Load data first.</div>`; return; }
@@ -4034,7 +4035,8 @@ function renderBudgets() {
   // Empty categories (nothing assigned, spent or available, and no target or bill) are hidden unless you ask to see them
   const emptyCats = P.budgetCats.filter(c => c !== selCat && !ti[c] && !billsOf(c).length && ['assigned', 'activity', 'available'].every(f => Math.abs(row[f][c] || 0) < 0.005));
   const shown = c => showEmpty || !emptyCats.includes(c);
-  const rows = order.filter(g => groups[g].some(shown)).map(g => `<tr class="grp"><td>${esc(g)}<button class="btn sm grpadd" data-addcat="${esc(g)}" title="Add a category to ${esc(g)}" aria-label="Add a category to ${esc(g)}">+</button></td><td class="wcol" colspan="4"></td><td class="num">${fmt2(total(groups[g], 'assigned'))}</td><td class="num">${fmt2(total(groups[g], 'activity'))}</td><td class="num">${fmt2(total(groups[g], 'available'))}</td></tr>` + groups[g].filter(shown).map(catRow).join('')).join('')
+  const rows = planSort ? P.budgetCats.filter(shown).sort((a, b) => planSort * ((row.available[b] || 0) - (row.available[a] || 0)) || P.budgetCats.indexOf(a) - P.budgetCats.indexOf(b)).map(catRow).join('') // Available header clicked: one list, groups off
+    : order.filter(g => groups[g].some(shown)).map(g => `<tr class="grp"><td>${esc(g)}<button class="btn sm grpadd" data-addcat="${esc(g)}" title="Add a category to ${esc(g)}" aria-label="Add a category to ${esc(g)}">+</button></td><td class="wcol" colspan="4"></td><td class="num">${fmt2(total(groups[g], 'assigned'))}</td><td class="num">${fmt2(total(groups[g], 'activity'))}</td><td class="num">${fmt2(total(groups[g], 'available'))}</td></tr>` + groups[g].filter(shown).map(catRow).join('')).join('')
     + (emptyCats.length ? `<tr class="emptyrow"><td colspan="8"><button type="button" class="linkbtn" data-empty title="Categories with nothing assigned, spent or available, and no target or bill">${showEmpty ? `Hide the ${emptyCats.length} empty categories` : `Show ${emptyCats.length} empty ${emptyCats.length === 1 ? 'category' : 'categories'}`}</button></td></tr>` : '')
     + (P.hiddenCats.length ? `<tr class="emptyrow"><td colspan="8"><button type="button" class="linkbtn" data-hiddenlist title="Categories you've hidden. Open the list to show one again.">${P.hiddenCats.length} hidden ${P.hiddenCats.length === 1 ? 'category' : 'categories'}: manage</button></td></tr>` : '');
 
@@ -4092,11 +4094,12 @@ function renderBudgets() {
     ${early.n ? `<div class="card info tone-teal"><b>${early.n} payment${early.n === 1 ? '' : 's'} from earlier in ${monthLabel(m)} (${fmt2(early.total)}) ${early.n === 1 ? "isn't" : "aren't"} in this budget yet</b>, because it starts on ${dateLabel(addDays(plan.cutoff, 1))}. <button class="btn sm primary" id="incEarlier">Fill them in as already paid</button><div class="muted" style="margin-top:4px">Ready to Assign stays the same. They just show up as paid, so you can see the whole month.</div></div>` : ''}
     <div class="plan-grid">
       <div class="card plan-wrap" style="padding:0;overflow-x:auto"><table class="plan${budgetLite() ? ' lite' : ''}">
-        <thead><tr><th>Category</th><th class="wcol">Progress</th><th class="wcol num">To go</th><th class="wcol" title="How to fund what's to go in time: what to put in now, and what comes from each pay">Plan</th><th class="wcol">When</th><th class="num">Assigned</th><th class="num">Activity</th><th class="num">Available</th></tr></thead>
+        <thead><tr><th>Category</th><th class="wcol">Progress</th><th class="wcol num">To go</th><th class="wcol" title="How to fund what's to go in time: what to put in now, and what comes from each pay">Plan</th><th class="wcol">When</th><th class="num">Assigned</th><th class="num">Activity</th><th class="num"><button type="button" class="sorth" id="availSort" title="Sort every category by Available (click again to flip, again to go back to groups)">Available${planSort ? (planSort > 0 ? ' ▼' : ' ▲') : ''}</button></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       <div>${selCat ? categoryHTML(selCat, m, P, row, ti[selCat]) : budgetLite() ? `<details class="moredet"><summary class="btn">Month summary</summary>${summaryHTML(m, P, row, under)}</details>` : summaryHTML(m, P, row, under)}</div>
     </div>`;
 
+  $('#availSort').onclick = () => { planSort = planSort === 0 ? 1 : planSort === 1 ? -1 : 0; renderBudgets(); }; // biggest first, then smallest first, then back to groups
   $('#rtaMove').onclick = () => openMove(m, P, {from: '__RTA', to: selCat || '', amt: row.rta > 0 ? row.rta : ''});
   $('#rtaRec').onclick = () => openReconcile();
   if ($('#rtaAuto')) $('#rtaAuto').onclick = () => openAutoAssign(m);
