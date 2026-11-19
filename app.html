@@ -36,6 +36,14 @@ dl.words dt { font-weight: 600; margin-top: 10px; } dl.words dd { margin: 2px 0 
 .card h2 { font-size: 15px; margin: 0 0 12px; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+@media (min-width: 701px) { /* PC/wider windows: Overview tiles become slim rows (label | number | note), two columns of rows */
+  #ovTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 8px 12px; }
+  #ovTiles .tile { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr); column-gap: 18px; align-items: center; padding: 8px 16px; text-align: left; }
+  #ovTiles .tile .label { font-size: 13px; }
+  #ovTiles .tile .value { font-size: 24px; margin-top: 0; text-align: right; white-space: nowrap; }
+  #ovTiles .tile .sub { font-size: 12px; margin-top: 0; }
+  #ovTiles .tile .sub:has(.accsplit) { margin-top: 0; gap: 3px; }
+}
 .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
 .tile .label { color: var(--text-secondary); font-size: 12px; }
 .tile .value { font-size: 24px; font-weight: 600; margin-top: 2px; }
@@ -402,6 +410,36 @@ label[for=monthSel] { display: none; }
 .rta .stat .sub { font-size: 12px; color: var(--text-muted); }
 /* Rearranging the Overview tiles */
 .tilebar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 8px; }
+.mapLines { display: none; }
+@media (max-width: 700px) { #mapSwitch { display: none; } }
+@media (min-width: 701px) { /* Map layout: bank-balance hero in the middle, the other tiles as circles around it, joined by lines */
+  #ovTiles.map { display: block; position: relative; height: 650px; border-radius: 22px; overflow: hidden; border: 1px solid #1d5a58; background: radial-gradient(ellipse at center, #0f3a3d 0%, #0a2a30 55%, #061a1f 100%); box-shadow: inset 0 0 80px rgba(60,230,200,.12), 0 6px 30px rgba(0,50,50,.25); }
+  #ovTiles.map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(100,235,205,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(100,235,205,.07) 1px, transparent 1px); background-size: 36px 36px; -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 85%); mask-image: radial-gradient(ellipse at center, #000 30%, transparent 85%); pointer-events: none; }
+  #ovTiles.map .tile { background: linear-gradient(145deg, rgba(40,140,130,.42), rgba(8,36,40,.85)); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); border: 2px solid var(--tone); box-shadow: 0 0 14px color-mix(in srgb, var(--tone) 55%, transparent), inset 0 0 18px color-mix(in srgb, var(--tone) 22%, transparent); color: #e6fbf6; transition: transform .25s, box-shadow .25s; }
+  #ovTiles.map .tile:hover { transform: translate(-50%, -50%) scale(1.08); box-shadow: 0 0 26px var(--tone), inset 0 0 22px color-mix(in srgb, var(--tone) 35%, transparent); }
+  #ovTiles.map .tile .label { color: color-mix(in srgb, var(--tone) 40%, #b8f5e6); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
+  #ovTiles.map .tile .value { color: #f0fffb; text-shadow: 0 0 10px color-mix(in srgb, var(--tone) 70%, transparent); }
+  #ovTiles.map .tile .sub { color: #9fd8cc; }
+  #ovTiles.map .tile .accsplit, #ovTiles.map .tile .prow { color: #e6fbf6; background: rgba(120,240,215,.14); }
+  #ovTiles.map .mapLines line { stroke-dasharray: 5 7; animation: mapflow 1.6s linear infinite; filter: drop-shadow(0 0 3px currentColor); }
+  #ovTiles.map .mapLines .orbit { fill: none; stroke: rgba(120,240,215,.28); stroke-width: 1; stroke-dasharray: 2 8; animation: none; filter: none; }
+  #ovTiles.map .tile.hero { animation: mappulse 3.5s ease-in-out infinite; }
+  @keyframes mapflow { to { stroke-dashoffset: -24; } }
+  @keyframes mappulse { 0%, 100% { box-shadow: 0 0 18px color-mix(in srgb, var(--tone) 55%, transparent), inset 0 0 22px color-mix(in srgb, var(--tone) 22%, transparent); } 50% { box-shadow: 0 0 38px var(--tone), inset 0 0 30px color-mix(in srgb, var(--tone) 35%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { #ovTiles.map .mapLines line, #ovTiles.map .tile.hero { animation: none; } }
+  #ovTiles.map .tile { position: absolute; transform: translate(-50%, -50%); box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 126px; height: 126px; padding: 8px; border-radius: 50%; overflow: hidden; z-index: 1; }
+  #ovTiles.map .tile .label { font-size: 11px; line-height: 1.2; }
+  #ovTiles.map .tile .value { font-size: 19px; text-align: center; margin-top: 2px; }
+  #ovTiles.map .tile .sub { display: none; }
+  #ovTiles.map .tile.hero { width: 240px; height: 240px; border-radius: 20px; padding: 14px; z-index: 2; }
+  #ovTiles.map .tile.hero .label { font-size: 14px; }
+  #ovTiles.map .tile.hero .value { font-size: 36px; }
+  #ovTiles.map .tile.hero { justify-content: space-evenly; }
+  #ovTiles.map .tile.hero .sub { display: block; font-size: 12px; text-align: center; width: 100%; }
+  #ovTiles.map .tile.hero .sub:has(.accsplit) { display: flex; flex-direction: column; gap: 14px; margin-top: 0; }
+  #ovTiles.map .tile.hero .accsplit { padding: 9px 18px; }
+  #ovTiles.map .mapLines { display: block; position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+}
 .tiles.editing .tile { position: relative; cursor: grab; border-style: dashed; }
 .tiles.editing .tile.dragging { opacity: .4; }
 .tiles.editing .tile .tmove { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; align-items: center; font-size: 13px; }
@@ -509,17 +547,18 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); backdrop-filter: none; -webki
 a { color: #000; }
 /* Family / Personal slider */
 header h1 { margin: 0 8px 0 0; }
-#profSwitch { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: 210px; height: 42px; padding: 0; border: 2px solid var(--ink); border-radius: 999px; background: #f2f2f2; box-shadow: none; cursor: pointer; font: inherit; color: #000; -webkit-tap-highlight-color: transparent; }
-#profSwitch .pthumb { position: absolute; top: 2px; left: 2px; width: calc(50% - 2px); height: 34px; border-radius: 999px; background: var(--ink); box-shadow: none; transition: transform .38s cubic-bezier(.68, -.35, .27, 1.35), background .38s; }
-#profSwitch[aria-checked=true] .pthumb { transform: translateX(100%); background: var(--personal); }
-#profSwitch .popt { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; letter-spacing: .01em; transition: color .3s; }
-#profSwitch .pf { color: #fff; }
-#profSwitch .pp { color: #000; }
-#profSwitch[aria-checked=true] .pf { color: #000; }
-#profSwitch[aria-checked=true] .pp { color: #fff; }
-#profSwitch:hover .pthumb { box-shadow: none; }
-#profSwitch:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
-#profSwitch:disabled { cursor: default; }
+#profSwitch, #mapSwitch { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: 210px; height: 42px; padding: 0; border: 2px solid var(--ink); border-radius: 999px; background: #f2f2f2; box-shadow: none; cursor: pointer; font: inherit; color: #000; -webkit-tap-highlight-color: transparent; }
+#profSwitch .pthumb, #mapSwitch .pthumb { position: absolute; top: 2px; left: 2px; width: calc(50% - 2px); height: 34px; border-radius: 999px; background: var(--ink); box-shadow: none; transition: transform .38s cubic-bezier(.68, -.35, .27, 1.35), background .38s; }
+#profSwitch[aria-checked=true] .pthumb, #mapSwitch[aria-checked=true] .pthumb { transform: translateX(100%); background: var(--personal); }
+#profSwitch .popt, #mapSwitch .popt { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; letter-spacing: .01em; transition: color .3s; }
+#profSwitch .pf, #mapSwitch .pf { color: #fff; }
+#profSwitch .pp, #mapSwitch .pp { color: #000; }
+#profSwitch[aria-checked=true] .pf, #mapSwitch[aria-checked=true] .pf { color: #000; }
+#profSwitch[aria-checked=true] .pp, #mapSwitch[aria-checked=true] .pp { color: #fff; }
+#profSwitch:hover .pthumb, #mapSwitch:hover .pthumb { box-shadow: none; }
+#profSwitch:focus-visible, #mapSwitch:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+#profSwitch:disabled, #mapSwitch:disabled { cursor: default; }
+#mapSwitch { width: 140px; height: 36px; } #mapSwitch .pthumb { height: 28px; } #mapSwitch .popt { font-size: 13px; }
 @media (max-width: 700px) { #profSwitch { width: 170px; height: 38px; } #profSwitch .pthumb { height: 30px; } #profSwitch .popt { font-size: 14px; } }
 /* The printable report stays black on white */
 body.printing { background: #fff; }
@@ -643,8 +682,8 @@ html:not([data-look="mono"]) button.btn:hover:not(:disabled), html:not([data-loo
 html:not([data-look="mono"]) button.btn.primary:hover:not(:disabled) { background: #086a65; border-color: #086a65; }
 html:not([data-look="mono"]) a { color: var(--ink); }
 html:not([data-look="mono"]) .filestat, html:not([data-look="mono"]) .pill.zero, html:not([data-look="mono"]) table.plan tr.grp td, html:not([data-look="mono"]) tbody tr:hover > td, html:not([data-look="mono"]) table.plan tr.cat:hover td { background: var(--tint); }
-html:not([data-look="mono"]) #profSwitch { background: var(--tint); }
-html:not([data-look="mono"]) #profSwitch .pp { color: var(--text-primary); }
+html:not([data-look="mono"]) #profSwitch, html:not([data-look="mono"]) #mapSwitch { background: var(--tint); }
+html:not([data-look="mono"]) #profSwitch .pp, html:not([data-look="mono"]) #mapSwitch .pp { color: var(--text-primary); }
 html:not([data-look="mono"]) .bar { background: var(--grid); }
 html:not([data-look="mono"]) dialog, html:not([data-look="mono"]) .menu, html:not([data-look="mono"]) #tip { color: var(--text-primary); }
 @media (max-width: 700px) {
@@ -2894,6 +2933,7 @@ function renderOverview() {
   if (viewHtml) el.innerHTML = `<button type="button" class="backbtn" data-ovview="home">← Back</button>` + viewHtml;
   else {
     ovView = 'home';
+    const mapPref = localStorage.getItem('ovMap') === '1';
     const ot = (v, label, value, sub, tone = 'teal') => viewTile('data-ovview', v, label, value, sub, tone);
     const owed = f ? allBills().filter(x => x.payBack && !x.done) : [], wa0 = f ? weekAllowance() : null;
     const btns = [
@@ -2907,8 +2947,8 @@ function renderOverview() {
       ot('help', 'Checks & words', '6 checks', 'plus what the words mean', 'sky'),
     ].join('');
     el.innerHTML = `
-    <div class="tilebar"><button type="button" class="btn sm${tileEdit ? ' primary' : ''}" id="tileArr" title="Drag the tiles, or use the arrows, to put them where you want">${tileEdit ? 'Done' : 'Rearrange tiles'}</button>${tileEdit && localStorage.getItem(PK + 'tileOrder') ? '<button type="button" class="linkbtn" id="tileReset">Reset order</button>' : ''}</div>
-    <div class="tiles${tileEdit ? ' editing' : ''}" id="ovTiles">${tiles}${btns}</div>
+    <div class="tilebar"><button type="button" id="mapSwitch" role="switch" aria-checked="${mapPref}" title="Switch the tiles between slim rows and a map with the balances in the middle"><span class="pthumb"></span><span class="popt pf">Rows</span><span class="popt pp">Map</span></button><button type="button" class="btn sm${tileEdit ? ' primary' : ''}" id="tileArr" title="Drag the tiles, or use the arrows, to put them where you want">${tileEdit ? 'Done' : 'Rearrange tiles'}</button>${tileEdit && localStorage.getItem(PK + 'tileOrder') ? '<button type="button" class="linkbtn" id="tileReset">Reset order</button>' : ''}</div>
+    <div class="tiles${tileEdit ? ' editing' : ''}${mapPref && !tileEdit ? ' map' : ''}" id="ovTiles">${tiles}${btns}</div>
     ${f && m === thisMonth() && +todayStr().slice(8) <= 7 && cache.byMonth[addMonths(m, -1)] ? `<p class="muted" style="margin:0 0 8px;font-size:13px"><button type="button" class="linkbtn" data-reviewmonth="${addMonths(m, -1)}">See how ${monthLabel(addMonths(m, -1))} went →</button></p>` : ''}
     ${cardOf.plain()}${oddCard}${soonCard}`;
   }
@@ -3865,11 +3905,33 @@ function saveTileOrder() {
   const box = $('#ovTiles'); if (!box) return;
   try { localStorage.setItem(PK + 'tileOrder', JSON.stringify([...box.children].map(tileKey))); } catch (e) { storageFull(e); }
 }
+// Map layout: the balances tile goes in the middle, the others sit on an ellipse around it with a line to each
+function layoutMap() {
+  const box = $('#ovTiles'); if (!box || !box.classList.contains('map')) return;
+  const old = box.querySelector('.mapLines'); if (old) old.remove();
+  if (window.innerWidth <= 700) return;
+  const tl = [...box.children].filter(c => c.classList.contains('tile')); if (!tl.length) return;
+  tl.forEach(t => t.classList.remove('hero'));
+  const hero = tl.find(t => t.querySelector('.accsplit')) || tl[0]; hero.classList.add('hero');
+  const sats = tl.filter(t => t !== hero), W = box.clientWidth, H = box.clientHeight, cx = W / 2, cy = H / 2, rx = W / 2 - 90, ry = H / 2 - 80;
+  let lines = '';
+  sats.forEach((t, i) => {
+    const a = -Math.PI / 2 + 2 * Math.PI * i / sats.length, x = cx + rx * Math.cos(a), y = cy + ry * Math.sin(a);
+    t.style.left = x + 'px'; t.style.top = y + 'px';
+    if (!t.dataset.tip && !t.title) { const l = t.querySelector('.label'), sb = t.querySelector('.sub'); t.title = (l ? l.textContent.trim() : '') + (sb ? ': ' + sb.textContent.trim() : ''); }
+    lines += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="${getComputedStyle(t).borderTopColor}" stroke-width="2" stroke-opacity=".8" style="color:${getComputedStyle(t).borderTopColor}"/>`;
+  });
+  hero.style.left = cx + 'px'; hero.style.top = cy + 'px';
+  const orbit = `<ellipse class="orbit" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/><ellipse class="orbit" cx="${cx}" cy="${cy}" rx="${rx * .62}" ry="${ry * .62}"/>`;
+  box.insertAdjacentHTML('afterbegin', `<svg class="mapLines" aria-hidden="true">${orbit}${lines}</svg>`);
+}
+window.addEventListener('resize', layoutMap);
 function setupTiles() {
   const box = $('#ovTiles'); if (!box) return;
   let saved = []; try { saved = JSON.parse(localStorage.getItem(PK + 'tileOrder') || '[]'); } catch (e) { saved = []; }
   const kids = [...box.children], pos = k => { const i = saved.indexOf(k); return i < 0 ? 1e6 : i; };
   kids.map((t, i) => [t, i]).sort((a, b) => pos(tileKey(a[0])) - pos(tileKey(b[0])) || a[1] - b[1]).forEach(([t]) => box.appendChild(t)); // new tiles go to the end
+  if (box.classList.contains('map')) { layoutMap(); return; }
   if (!tileEdit) return;
   for (const t of box.children) {
     t.draggable = true;
@@ -3881,6 +3943,7 @@ function setupTiles() {
   const box = () => $('#ovTiles');
   document.addEventListener('click', e => {
     const b = box(); if (!b) return;
+    if (e.target.closest('#mapSwitch')) { localStorage.setItem('ovMap', localStorage.getItem('ovMap') === '1' ? '0' : '1'); renderOverview(); return; }
     if (e.target.closest('#tileArr')) { tileEdit = !tileEdit; renderOverview(); return; }
     if (e.target.closest('#tileReset')) { localStorage.removeItem(PK + 'tileOrder'); renderOverview(); return; }
     if (!tileEdit) return;
