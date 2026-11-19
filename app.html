@@ -2799,7 +2799,7 @@ function renderOverview() {
     const ws = weekSpend(), wa = weekAllowance(); // this week against your weekly allowance
     const to = wa ? goalTradeoff(wa.funLeft) : []; // what unspent fun money would add to the goals
     const fp = funPots(wa), potLines = fp && fp.pots.length ? `<div class="prows">` + fp.pots.map(p => prow(esc(p.c), p.over > 0.005 ? `${fmt(p.over)} over its ${fmt(p.target)}` : `${fmt(p.left)} left of ${fmt(p.target)}`, p.over > 0.005 ? 'bad' : '')
-      + (p.overMonth > p.over + 0.005 ? prow(`This month - Overspent already`,`${fmt(round2(p.overMonth - p.over))} over`, 'bad') : '')).join('') + (fp.short ? prow(`Doesn't cover all ${fp.pots.length}`, `${fmt(fp.total)} a week`, 'warn') : '') + `</div>` : '';
+      + (p.overMonth > p.over + 0.005 ? prow(`This month - Overspent already`,`${fmt(round2(p.overMonth - p.over))} over`, 'bad') : '')).join('') + `</div>` : '';
     const tw = topUpWarn(f); // a top-up from the offset coming up (family budget)
     const of = offsetForecast(f), ofShort = of && of.short && daysBetween(f.today, of.short.date) <= 14; // and what's left to draw in the offset
     const ofTip = of ? `<br>${esc(of.name)}: ${fmt2(of.now)} available to draw now.` + (of.short ? ` <b>About ${fmt(of.short.amount)} short on ${dayLabel(of.short.date)}</b>, when ${esc(nameList(of.short.what))} come${of.short.what.length === 1 ? 's' : ''} out.` : ` Lowest about ${fmt(of.low.avail)} around ${shortDay(of.low.date)}.`) : '';
@@ -2829,7 +2829,7 @@ function renderOverview() {
           const hasPots = fp && fp.pots.length, funLeft = hasPots ? round2(fp.pots.reduce((s, p) => s + p.left, 0)) : Math.max(0, wa.funLeft), funOf = hasPots ? fp.total : wa.fun;
           const anyOver = hasPots && fp.pots.some(p => p.over > 0.005 || p.overMonth > 0.005);
           return tile('Fun money this week', fmt(funLeft), (wa.amount <= 0 ? `nothing spare: tightest ${shortDay(wa.pinch.date)}` : `left of ${fmt(funOf)} · to ${shortDay(wa.end)}`) + potLines
-            + (!hasPots && to.length ? `<br>Not spent → ${to.map(p => `${fmt(p.amount)} ${esc(p.c)}`).join(', ')}` : ''), wa.amount <= 0 || anyOver && fp.pots.some(p => p.over > 0.005) ? 'bad' : funLeft <= 0 || anyOver || (fp && fp.short) ? 'warn' : 'good',
+            + (!hasPots && to.length ? `<br>Not spent → ${to.map(p => `${fmt(p.amount)} ${esc(p.c)}`).join(', ')}` : ''), wa.amount <= 0 || anyOver && fp.pots.some(p => p.over > 0.005) ? 'bad' : funLeft <= 0 || anyOver ? 'warn' : 'good',
             hasPots ? `Your treat money: a flat ${fmt(fp.total)} each week${fp.pots.length > 1 ? ` shared between ${fp.pots.map(p => esc(p.c)).join(' and ')}` : ` for ${esc(fp.pots[0].c)}`} (set on the Budget tab). It resets every ${new Date(wa.start + 'T00:00:00').toLocaleDateString('en-NZ', {weekday: 'long'})}; what you don't spend isn't carried over.`
                 + (anyOver ? `<br><b>You've gone over: cover ${fmt(Math.max(...fp.pots.map(p => p.overMonth)))} or so from another category on the Budget tab.</b>` : '')
               : `Your spare money after every bill, pay, goal savings and essentials. Set a weekly target on a category (Budget tab) to make it a flat amount.`
