@@ -1946,6 +1946,13 @@ function forecastDataRaw(bills, everyday = true, today = todayStr(), weekly = nu
   const ownFrom = addDays(bankEnd(today), 1); // your own bills: unpaid ones since the bank's newest day are still to come (handPaid has taken off the ones you entered)
   for (const b of bills) if (!b.done) for (const d of billDates(b, b.manual ? ownFrom : '0000-00-00', to))
     events.push({date: d < from ? from : d, due: d, bkey: b.key, name: b.name, amount: b.out ? -billAmtOn(b, d) : billAmtOn(b, d), cat: b.cat, kind: b.email ? 'bill' : b.manual ? 'fixed' : 'estimate', outside: !!b.outside});
+  // opts.whatif (the Bills tab's "What if" box): {oneAmt, oneDate, oneName, weekly, billKey, billAmt, billFrom}. Nothing is saved: it only changes this forecast.
+  const W = opts.whatif || null;
+  if (W) {
+    if (W.billKey && W.billAmt > 0) for (const e of events) if (e.bkey === W.billKey && e.due >= (W.billFrom || '0000-00-00')) e.amount = e.amount < 0 ? -W.billAmt : W.billAmt;
+    if (W.oneAmt && W.oneDate) events.push({date: W.oneDate < from ? from : W.oneDate, due: W.oneDate, bkey: 'whatif', name: W.oneName || 'What if', amount: W.oneAmt, cat: null, kind: 'fixed', outside: false, whatif: true});
+  }
+  const extraDaily = W && W.weekly ? W.weekly / 7 : 0; // spending more (or less) each week
   events.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : b.amount - a.amount);
   const on = {};
   for (const e of events) (on[e.date] = on[e.date] || []).push(e);
@@ -1954,7 +1961,7 @@ function forecastDataRaw(bills, everyday = true, today = todayStr(), weekly = nu
   const days = [], delta = [], payIn = [];
   let everydayTotal = 0; // everyday spending from today to the end
   for (let d = from; d <= to; d = addDays(d, 1)) {
-    const dd = daily * seasonOf(d);
+    const dd = daily * seasonOf(d) + (d > today ? extraDaily : 0);
     if (d > today) everydayTotal += dd;
     let x = -dd, pay = false;
     for (const e of on[d] || []) if (!e.outside) { x += e.amount; if (e.amount > 0) pay = true; }
@@ -2329,7 +2336,7 @@ let allowMemo = null;
 function setAsideMoney(bills, today) {
   const m = today.slice(0, 7), P = computePlan(m), row = P.by[m];
   if (!row) return {total: 0, list: []};
-  const to = addDays(today, FC_DAYS), goals = new Set(goalList()), list = [];
+  const to = addDays(today, FC_DAYS), goals = new Set([...goalList(), ...(potCat() ? [potCat()] : [])]), list = [];
   for (const c of P.budgetCats) {
     if (goals.has(c) || (everydayCat(c) && priorityOf(c) !== 4)) continue;
     const av = row.available[c] || 0; if (av < 0.005) continue;
@@ -2345,7 +2352,7 @@ function setAsideMoney(bills, today) {
 }
 function weekAllowance(today = todayStr()) {
   if (!plan.cutoff || !txns.length) return null;
-  const hand = handLimit(), key = [today, JSON.stringify(plan.weekLimit || null), JSON.stringify(plan.allowance || null), JSON.stringify(plan.goals || null), JSON.stringify(plan.targets), JSON.stringify(plan.assigned), JSON.stringify(plan.priority || null), JSON.stringify(plan.fixed || null)].join('|');
+  const hand = handLimit(), key = [today, JSON.stringify(plan.weekLimit || null), JSON.stringify(plan.allowance || null), JSON.stringify(plan.goals || null), JSON.stringify(plan.yearly || null), JSON.stringify(plan.targets), JSON.stringify(plan.assigned), JSON.stringify(plan.priority || null), JSON.stringify(plan.fixed || null)].join('|');
   if (allowMemo && allowMemo.cache === cache && allowMemo.key === key) return allowMemo.v;
   const day = hand && Number.isInteger(hand.day) ? hand.day : SETTINGS.weekStartDay, buffer = allowBuffer();
   let start = weekStartOn(today, day);
@@ -2404,9 +2411,59 @@ function goalInfo(c, today = todayStr(), extraMonths = 0) {
   const weeks = Math.max(1, Math.ceil((daysBetween(today, end) + 1) / 7)), need = Math.max(0, round2(t.amount - saved));
   return {c, amount: t.amount, month: t.month, due, saved: round2(saved), need, weeks, weekly: round2(need / weeks), done: saved >= t.amount - 0.005, overdue: cd.overdue};
 }
-function goalLoad(today = todayStr()) { // money already set aside (not spendable) and what the goals need each week
-  const list = goalList().map(c => goalInfo(c, today));
-  return {saved: round2(list.reduce((s, g) => s + g.saved, 0)), weekly: round2(list.reduce((s, g) => s + (g.done ? 0 : g.weekly), 0)), list};
+// The yearly costs pot: one category ("Yearly costs", group Savings goals) that saves up for rego, insurance, Christmas and the like.
+// plan.yearly = {cat, items: [{id, name, amount, month: 'YYYY-MM', cat?, paidM?}]}. What's saved in the category goes to the soonest cost first;
+// each cost still short needs (amount - its share) / weeks left in its month. A cost whose month has passed (or that was moved to its
+// category: paidM) moves on to the same month next year.
+const potCat = () => plan.yearly && plan.yearly.items && plan.yearly.items.length ? plan.yearly.cat : null;
+function yearlyPot(today = todayStr()) {
+  const Y = plan.yearly;
+  if (!Y || !Y.items || !Y.items.length || !KIND[Y.cat]) return null;
+  const now = today.slice(0, 7), items = Y.items.map(it => {
+    let due = it.month;
+    while (due < now || (it.paidM && due <= it.paidM)) due = addMonths(due, 12);
+    return {...it, due};
+  }).sort((a, b) => a.due < b.due ? -1 : a.due > b.due ? 1 : b.amount - a.amount);
+  const saved = goalSaved(Y.cat);
+  let rest = saved;
+  const list = items.map(it => {
+    const got = Math.min(rest, it.amount); rest -= got;
+    const end = addDays(addMonths(it.due, 1) + '-01', -1), weeks = Math.max(1, Math.ceil((daysBetween(today, end) + 1) / 7)), need = Math.max(0, round2(it.amount - got));
+    return {...it, got: round2(got), need, weeks, weekly: round2(need / weeks), done: got >= it.amount - 0.005, dueNow: it.due <= now};
+  });
+  return {cat: Y.cat, saved: round2(saved), weekly: round2(list.reduce((s, x) => s + (x.done ? 0 : x.weekly), 0)), total: round2(list.reduce((s, x) => s + x.amount, 0)), list};
+}
+function goalLoad(today = todayStr()) { // money already set aside (not spendable) and what the goals (and the yearly costs pot) need each week
+  const list = goalList().map(c => goalInfo(c, today)), pot = yearlyPot(today);
+  return {saved: round2(list.reduce((s, g) => s + g.saved, 0) + (pot ? pot.saved : 0)), weekly: round2(list.reduce((s, g) => s + (g.done ? 0 : g.weekly), 0) + (pot ? pot.weekly : 0)), list, pot};
+}
+function addYearlyCost(name, amount, month, cat = '', from = null) {
+  plan.yearly = plan.yearly || {cat: 'Yearly costs', items: []};
+  if (!KIND[plan.yearly.cat]) {
+    const r = addCategory(plan.yearly.cat, 'Savings goals');
+    if (r.error && !KIND[plan.yearly.cat]) return r.error;
+  }
+  plan.priority = plan.priority || {}; plan.priority[plan.yearly.cat] = 4;
+  plan.yearly.items.push({id: 'y' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, amount: round2(amount), month, ...(cat ? {cat} : {})});
+  if (from) plan.goalSkip = {...(plan.goalSkip || {}), [from]: true};
+  return '';
+}
+function movePotMoney(id) { // a cost has come due: move what's saved for it into the category where the bill will land
+  const P = yearlyPot(), x = P && P.list.find(i => i.id === id), m = thisMonth();
+  if (!x || !x.cat || !KIND[x.cat] || x.got < 0.005) return;
+  const a = (plan.assigned[m] || {});
+  setAssigned(m, P.cat, (a[P.cat] || 0) - x.got); setAssigned(m, x.cat, ((plan.assigned[m] || {})[x.cat] || 0) + x.got);
+  plan.yearly.items.find(i => i.id === id).paidM = x.due; savePlan(); refresh(); toast(`Moved ${fmt(x.got)} to ${x.cat}`);
+}
+const removeYearly = id => { plan.yearly.items = plan.yearly.items.filter(i => i.id !== id); savePlan(); refresh(); toast('Taken out of the pot'); };
+function yearlyPotHTML() {
+  const P = yearlyPot();
+  if (!P) return '';
+  const rows = P.list.map(x => `<tr><td><b>${esc(x.name)}</b><div class="muted" style="font-size:12px">${x.done ? 'Saved up ✓' : `${fmt(x.got)} of ${fmt(x.amount)}`} · due ${monthLabel(x.due)}</div></td>
+    <td style="width:26%"><div class="bar" style="background:none"><span style="width:${x.amount > 0 ? Math.min(100, x.got / x.amount * 100) : 0}%;background:var(--good)"></span></div></td>
+    <td class="num">${x.done ? '' : fmt(x.weekly) + ' a week'}</td>
+    <td class="num" style="white-space:nowrap">${x.dueNow && x.cat && x.got > 0.005 ? `<button type="button" class="btn sm primary" data-potmove="${esc(x.id)}" title="Move the saved money to ${esc(x.cat)}">Move ${fmt(x.got)} to ${esc(x.cat)}</button> ` : ''}<button type="button" class="btn sm" data-potdel="${esc(x.id)}" title="Take this out of the pot">Remove</button></td></tr>`).join('');
+  return `<div style="margin-top:10px"><h3 style="margin:0 0 4px">Yearly costs pot</h3><p class="muted" style="margin:0 0 4px">${fmt(P.saved)} saved of ${fmt(P.total)}. It comes off your weekly allowance first: ${fmt(P.weekly)} a week. Money in the "${esc(P.cat)}" category goes to the soonest cost first.</p><table><tbody>${rows}</tbody></table></div>`;
 }
 function goalShares(n) { // [0.6, 0.3, 0.1/(n-2)…], scaled to 100% with fewer than three goals
   if (n < 1) return [];
@@ -2463,7 +2520,7 @@ function goalsHTML() {
   }).join('');
   return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Savings goals</h2><button type="button" class="btn sm primary" data-goaledit="">+ Add a goal</button></div>${offer}
     ${list.length ? `<p class="muted" style="margin:6px 0">Goals come off your weekly allowance first${A ? `: ${fmt(goalLoad().weekly)} a week now, leaving ${fmt(A.amount)} a week to spend` : ''}. Unspent money goes 60% to the top goal, 30% to the second and 10% to the rest.</p><table><tbody>${rows}</tbody></table>`
-      : '<p class="muted" style="margin:6px 0 0">Add something to save for, like a holiday or a car fund. It is paid like a bill, so your spending adapts to it, and money you don\'t spend each week goes towards it.</p>'}${yearlyHTML()}</div>`;
+      : '<p class="muted" style="margin:6px 0 0">Add something to save for, like a holiday or a car fund. It is paid like a bill, so your spending adapts to it, and money you don\'t spend each week goes towards it.</p>'}${yearlyPotHTML()}<div class="row" style="margin-top:8px"><button type="button" class="btn sm" data-yearadd>+ Add a yearly cost</button></div>${yearlyHTML()}</div>`;
 }
 // Yearly costs the app has spotted in your history, offered as goals (nothing is created until you say so):
 // a time of year (give or take a month) when an everyday category ran well above its usual month, in 2+ different years.
@@ -2497,7 +2554,7 @@ function yearlyCosts(today = todayStr()) {
       const newest = grp[grp.length - 1], mm = newest.m.slice(5), amount = Math.round(runs.reduce((s, r) => s + r.ex, 0) / runs.length / 10) * 10;
       const name = `${c} (${monthWord(mm)})`, ids = grp.map(b => `spike|${c}|${b.m.slice(5)}`);
       if (amount < 100 || ids.some(i => skip[i]) || have.has(name.toLowerCase())) continue;
-      out.push({id: ids[ids.length - 1], name, amount, month: nextMonthOn(mm, today), years: runs.length, go: 'txcat:' + newest.m + '|' + c,
+      out.push({id: ids[ids.length - 1], name, cat: c, amount, month: nextMonthOn(mm, today), years: runs.length, go: 'txcat:' + newest.m + '|' + c,
         why: `${c} was about ${fmt(amount)} above a normal month around ${monthWord(mm)}, in each of the last ${runs.length} years.`});
     }
   }
@@ -2510,14 +2567,17 @@ const yearlyHTML = () => {
   const rows = ys.map(y => { const weeks = Math.max(1, Math.ceil((daysBetween(today, addDays(addMonths(y.month, 1) + '-01', -1)) + 1) / 7));
     return `<tr><td><button type="button" class="linkbtn" data-yeargo="${esc(y.go)}" title="See the transactions behind this"><b>${esc(y.name)}</b></button><div class="muted" style="font-size:12px">${esc(y.why)}</div></td>`
       + `<td class="num">${fmt(y.amount)}</td><td style="white-space:nowrap">${monthLabel(y.month)}</td><td class="num">${fmt(y.amount / weeks)}</td>`
-      + `<td class="num" style="white-space:nowrap"><button type="button" class="btn sm primary" data-yeargoal="${esc(y.id)}">Save for it</button> <button type="button" class="btn sm" data-yearskip="${esc(y.id)}" title="Stop suggesting this one">Hide</button></td></tr>`; }).join('');
+      + `<td class="num" style="white-space:nowrap"><button type="button" class="btn sm primary" data-yearpot="${esc(y.id)}" title="Save for it in the Yearly costs pot">Add to pot</button> <button type="button" class="btn sm" data-yeargoal="${esc(y.id)}" title="Make it a savings goal of its own">Own goal</button> <button type="button" class="btn sm" data-yearskip="${esc(y.id)}" title="Stop suggesting this one">Hide</button></td></tr>`; }).join('');
   return `<details id="yearlyBox" style="margin-top:10px"${yearlyOpen ? ' open' : ''}><summary><b>Yearly costs I spotted (${ys.length})</b> <span class="muted" style="font-weight:400">· came round in each of the last two years</span></summary>`
-    + `<table><thead><tr><th>Cost</th><th class="num">About</th><th>Due</th><th class="num">A week</th><th></th></tr></thead><tbody>${rows}</tbody></table></details>`;
+    + `<table><thead><tr><th>Cost</th><th class="num">About</th><th>Due</th><th class="num">A week</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    + `<div class="row" style="margin-top:6px"><button type="button" class="btn sm primary" data-yearpot="*">Add all to the pot</button></div></details>`;
 };
 let goalEdit = null;
 let goalFrom = null; // the id of the yearly-cost suggestion this goal is being made from; saving hides it for good, even if you rename it
+let goalYearly = false; // the box is adding a cost to the yearly costs pot, not a goal of its own
+function openYearlyAdd() { openGoal(null); goalYearly = true; $('#gdTitle').textContent = 'New yearly cost'; $('#gdMonth').value = addMonths(thisMonth(), 6); $('#gdRank').value = ''; }
 function openGoal(c, pre = null) { // pre: values to fill in for a goal suggested from your history
-  goalEdit = c || null; goalFrom = pre ? pre.id : null;
+  goalEdit = c || null; goalFrom = pre ? pre.id : null; goalYearly = false;
   const t = c && plan.targets[c], names = goalList();
   $('#gdTitle').textContent = c ? `Edit "${c}"` : 'New savings goal';
   $('#gdName').value = c || ''; $('#gdName').disabled = !!c;
@@ -2531,6 +2591,11 @@ function saveGoal() {
   const name = $('#gdName').value.trim().replace(/\s+/g, ' '), amount = parseFloat(String($('#gdAmount').value).replace(/[$,\s]/g, '')), month = $('#gdMonth').value, rank = Math.max(1, parseInt($('#gdRank').value, 10) || 1);
   const bad = !name ? 'Type a name.' : !(amount > 0) ? 'Type how much you want to save.' : !isMonth(month) ? 'Pick the month you want it by.' : month < thisMonth() ? 'Pick a month that has not passed.' : '';
   if (bad) { $('#gdMsg').textContent = bad; return; }
+  if (goalYearly) {
+    const err = addYearlyCost(name, amount, month);
+    if (err) { $('#gdMsg').textContent = err; return; }
+    goalYearly = false; savePlan(); $('#goalDlg').close(); refresh(); toast('Added to the yearly costs pot'); return;
+  }
   if (!goalEdit) {
     const have = allCats().find(([n]) => n.toLowerCase() === name.toLowerCase());
     if (!have) { const r = addCategory(name, 'Savings goals'); if (r.error) { $('#gdMsg').textContent = r.error; return; } }
@@ -5715,14 +5780,16 @@ const shortDay = d => { const [y, mo, da] = d.split('-').map(Number); return new
 const isSubCat = c => !!c && (/subscri/i.test(c) || (plan.custom.find(x => x.name === c) || {}).from === 'Subscriptions & Apps');
 // The Bills tab opens on a few big buttons; each one opens a single card with a Back button
 let billView = 'home'; // 'home', or the card showing: due, fc, out, subs, in, hidden
-const BILL_VIEWS = {due: 'Due soon', fc: 'Balance forecast', out: 'All regular bills', subs: 'Subscriptions', in: 'Money coming in', hidden: 'Hidden payments'};
+const BILL_VIEWS = {due: 'Due soon', fc: 'Balance forecast', whatif: 'What if…', out: 'All regular bills', subs: 'Subscriptions', in: 'Money coming in', hidden: 'Hidden payments'};
 function renderBills() {
   const el = $('#tab-bills');
   if (!txns.length) { el.innerHTML = `<div class="card empty">Load data first.</div>`; return; }
   const bills = allBills();
+  if (billView !== 'whatif') whatIf = newWhatIf(); // a what-if lives only while you're looking at it
   if (!(billView in BILL_VIEWS)) { el.innerHTML = billsHomeHTML(bills); return; }
   const back = `<button type="button" class="backbtn" data-billview="home">← Back</button>`;
   if (billView === 'due') el.innerHTML = back + `<div class="card">${dueSoonHTML(bills)}</div>`;
+  else if (billView === 'whatif') el.innerHTML = back + `<div class="card">${whatIfHTML(bills)}</div>`;
   else if (billView === 'fc') el.innerHTML = back + `<div class="card">${forecastHTML(bills)}</div>`;
   else { regShow = billView; el.innerHTML = back + `<div class="card">${regularHTML(bills)}</div>`; }
 }
@@ -5742,6 +5809,7 @@ function billsHomeHTML(bills) {
     billTile('due', 'Due soon', soon.length ? fmt2(soon.reduce((s, b) => s + b.amount, 0)) : 'Nothing', soon.length ? `${soon.length} bill${soon.length === 1 ? '' : 's'} in the next 2 weeks` : 'due in the next 2 weeks',
       !soon.length ? 'good' : soon.some(b => b.next < today) ? 'bad' : soon.some(b => b.next <= addDays(today, 3)) ? 'warn' : 'teal'),
     billTile('fc', 'Balance forecast', f ? fmt(f.low.bal) : '—', f ? `lowest point, around ${dayLabel(f.low.date)}` : 'set up the budget first', f ? fcLevel(f) : 'teal'),
+    plan.cutoff ? billTile('whatif', 'What if…', 'Try it', 'a one-off, a pay rise, spending less', 'sky') : '',
     billTile('out', 'All regular bills', fmt(sum(outs) / 12), `a month · ${outs.length} bills`, 'sky'),
     subs.length ? billTile('subs', 'Subscriptions', fmt(sum(subs)), `a year · ${subs.length} of them`, 'leaf') : '',
     billTile('in', 'Money coming in', pay ? fmt(wk.reduce((t, e) => t + e.amount, 0)) : '—', pay ? (wkNames.length > 1 ? `${wkNames.map(esc).join(' + ')}, ${dayLabel(pay.date)}` : `${esc(pay.name)}, ${dayLabel(pay.date)}`) : `${ins.length} regular`, 'good'),
@@ -5793,6 +5861,67 @@ function fcStatus(f) {
   if (low.bal < -0.005) return `<p style="margin:0 0 6px"><span style="color:var(--bad)">✕</span> <b>Your balance could go below $0, down to about ${fmt2(low.bal)} around ${dayLabel(low.date)}</b>${pay ? `, before ${esc(pay.name)} comes in on ${dayLabel(pay.date)}` : ''}. Move some money in, or hold off on spending, before then.</p>`;
   if (low.bal < Math.max(100, f.typical)) return `<p style="margin:0 0 6px"><span style="color:var(--warn)">!</span> <b>Your balance gets down to about ${fmt2(low.bal)} around ${dayLabel(low.date)}.</b> That's cutting it fine.</p>`;
   return `<p style="margin:0 0 6px"><span style="color:var(--good)">✓</span> <b>You should stay above $0.</b> The lowest point is about ${fmt2(low.bal)}, around ${dayLabel(low.date)}.</p>`;
+}
+// ---------- What if (Bills tab): try a change on the forecast; nothing is saved unless you press Apply ----------
+const newWhatIf = () => ({oneDir: 'out', oneAmt: '', oneDate: '', oneName: '', weekly: '', billKey: '', billAmt: ''});
+let whatIf = newWhatIf();
+const wiNum = v => { const n = parseFloat(String(v).replace(/[$,\s]/g, '')); return isFinite(n) ? n : 0; };
+function wiOpts() { // the what-if as forecast options, or null when nothing is filled in
+  const w = whatIf, one = Math.abs(wiNum(w.oneAmt)) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(w.oneDate), weekly = wiNum(w.weekly), bill = w.billKey && wiNum(w.billAmt) > 0;
+  if (!one && !weekly && !bill) return null;
+  return {oneAmt: one ? (w.oneDir === 'in' ? 1 : -1) * Math.abs(wiNum(w.oneAmt)) : 0, oneDate: one ? w.oneDate : '', oneName: w.oneName.trim() || 'What if',
+    weekly, billKey: bill ? w.billKey : '', billAmt: bill ? wiNum(w.billAmt) : 0};
+}
+function whatIfHTML(bills) {
+  let h = '<h2>What if…</h2>';
+  if (!plan.cutoff) return h + `<p class="muted">Set up the budget first; the forecast starts from your account balance.</p>`;
+  const today = todayStr(), W = wiOpts(), w = whatIf, o = {topups: FAMILY};
+  const f0 = forecastData(bills, fcEveryday, today, null, o), f1 = W ? forecastData(bills, fcEveryday, today, null, {...o, whatif: W}) : null;
+  const pick = bills.filter(b => !b.done && b.rhythm !== 'once' && !b.guess).sort((a, b) => a.name.localeCompare(b.name));
+  const inp = (id, v, wd, ph = '', type = 'text') => `<input type="${type}" id="${id}" value="${esc(v)}" placeholder="${esc(ph)}" ${type === 'text' ? 'inputmode="decimal" ' : ''}style="width:${wd}px;padding:3px 6px">`;
+  h += `<p class="muted" style="margin:0 0 8px">Try a change and watch the forecast move. Nothing is saved unless you press Apply.</p>
+    <div class="row" style="gap:6px;flex-wrap:wrap;font-size:14px;margin-bottom:6px"><b>A one-off:</b> <select id="wiOneDir"><option value="out"${w.oneDir === 'out' ? ' selected' : ''}>money out</option><option value="in"${w.oneDir === 'in' ? ' selected' : ''}>money in</option></select> $${inp('wiOneAmt', w.oneAmt, 80)} on ${inp('wiOneDate', w.oneDate, 150, '', 'date')} ${inp('wiOneName', w.oneName, 150, 'name (optional)').replace('inputmode="decimal" ', '')}</div>
+    <div class="row" style="gap:6px;flex-wrap:wrap;font-size:14px;margin-bottom:6px"><b>Everyday spending:</b> $${inp('wiWeekly', w.weekly, 70)} a week more (type -20 for less)</div>
+    <div class="row" style="gap:6px;flex-wrap:wrap;font-size:14px;margin-bottom:10px"><b>A bill or pay changes to:</b> <select id="wiBill"><option value="">— pick one —</option>${pick.map(b => `<option value="${esc(b.key)}"${w.billKey === b.key ? ' selected' : ''}>${esc(b.name)} (${fmt2(b.amount)})</option>`).join('')}</select> $${inp('wiBillAmt', w.billAmt, 80)} <span class="muted">from its next payment</span></div>`;
+  const f = f1 || f0, iLow = f.pts.indexOf(f.low), byDay = {};
+  for (const e of f.events) (byDay[e.date <= today ? today : e.date] = byDay[e.date <= today ? today : e.date] || []).push(e);
+  h += lineChart({xs: f0.pts.map((_, i) => i), ys: f0.pts.map(p => p.bal), xs2: f1 ? f1.pts.map((_, i) => i) : null, ys2: f1 ? f1.pts.map(p => p.bal) : null,
+    label: 'Expected account balance over the next 6 weeks, and with your change', ticks: f0.pts.map((p, i) => [i, i ? shortDay(p.date) : 'Today']).filter(([i]) => i % 7 === 0),
+    marks: [f0.pts.indexOf(f0.low)], labels: [[f0.pts.indexOf(f0.low), 'Lowest ' + fmt(f0.low.bal)]],
+    tips: f0.pts.map((p, i) => `<b>${dayLabel(p.date)}</b><br>Now about ${fmt2(p.bal)}` + (f1 && f1.pts[i] ? `<br>With your change about ${fmt2(f1.pts[i].bal)}` : ''))});
+  if (!W) return h + '<p class="muted" style="margin:8px 0 0">Fill in one of the boxes above to see what it does.</p>';
+  const row = (label, a, b) => `<tr><td>${label}</td><td class="num">${a}</td><td class="num"><b>${b}</b></td></tr>`;
+  const of0 = FAMILY ? offsetForecast(f0) : null, of1 = FAMILY ? offsetForecast(f1) : null;
+  h += `<table style="margin-top:10px"><thead><tr><th></th><th class="num">Now</th><th class="num">With your change</th></tr></thead><tbody>
+    ${row('Lowest balance', `${fmt(f0.low.bal)} · ${dayLabel(f0.low.date)}`, `${fmt(f1.low.bal)} · ${dayLabel(f1.low.date)}`)}
+    ${row('Balance in 6 weeks', fmt(f0.pts.at(-1).bal), fmt(f1.pts.at(-1).bal))}
+    ${FAMILY ? row('From the offset (top-ups + rates)', fmt(f0.fromOffset.total), fmt(f1.fromOffset.total)) : ''}
+    ${of0 && of1 ? row('Offset short?', of0.short ? `${fmt(of0.short.amount)} on ${dayLabel(of0.short.date)}` : 'No', of1.short ? `${fmt(of1.short.amount)} on ${dayLabel(of1.short.date)}` : 'No') : ''}</tbody></table>`;
+  const canApply = W.oneAmt || W.billKey;
+  h += `<div class="row" style="gap:8px;margin-top:10px">${canApply ? '<button type="button" class="btn sm primary" data-wiapply>Apply</button>' : ''}<button type="button" class="btn sm" data-wiclear>Start again</button></div>`
+    + (W.weekly ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${canApply ? 'Apply adds the one-off or changes the bill. ' : ''}A change to everyday spending can't be applied here: to keep to it, set your weekly limit on the Overview tab.</p>` : '');
+  return h;
+}
+function applyWhatIf() {
+  const W = wiOpts(); if (!W) return;
+  const done = [];
+  if (W.oneAmt) {
+    billCfg.added = [...billCfg.added, {id: 'whatif-' + Date.now(), name: W.oneName, amount: Math.abs(W.oneAmt), out: W.oneAmt < 0, rhythm: 'once', date: W.oneDate, cat: ''}];
+    done.push('one-off added');
+  }
+  if (W.billKey) {
+    const b = allBills().find(x => x.key === W.billKey), mine = billCfg.added.find(x => x.id === W.billKey);
+    if (mine) { billCfg.added = billCfg.added.map(x => x.id === mine.id ? {...x, amount: W.billAmt} : x); done.push('bill changed'); }
+    else if (b) { // a bill found in your transactions: your own bill of the same name takes over from it
+      billCfg.added = [...billCfg.added, {id: 'whatif-' + Date.now() + 'b', name: b.name, amount: W.billAmt, out: b.out, rhythm: b.rhythm, date: b.next, cat: b.cat || '', ...(b.outside ? {outside: true} : {})}];
+      done.push('bill changed');
+    }
+  }
+  store.set('bills', billCfg); whatIf = newWhatIf(); billView = 'fc'; toast('Applied: ' + done.join(', ')); render(); scrollTo(0, 0);
+}
+function readWhatIf() { // copy the boxes into whatIf
+  const v = id => ($('#' + id) || {}).value || '';
+  Object.assign(whatIf, {oneDir: v('wiOneDir') || 'out', oneAmt: v('wiOneAmt'), oneDate: v('wiOneDate'), oneName: v('wiOneName'), weekly: v('wiWeekly'), billKey: v('wiBill'), billAmt: v('wiBillAmt')});
 }
 function forecastHTML(bills) {
   let h = '<h2>Cash-flow forecast: the next 6 weeks</h2>';
@@ -5954,6 +6083,8 @@ function billClick(e) {
   else if ('billadd' in b.dataset) openBill(null);
   else if ('billtab' in b.dataset) { tab = 'bills'; billView = 'home'; render(); scrollTo(0, 0); }
   else if ('billview' in b.dataset) { billView = b.dataset.billview; render(); scrollTo(0, 0); }
+  else if ('wiapply' in b.dataset) applyWhatIf();
+  else if ('wiclear' in b.dataset) { whatIf = newWhatIf(); renderBills(); }
   else if ('ebadd' in b.dataset) addEmailBill(b.dataset.ebadd);
   else if ('ebskip' in b.dataset) { billCfg.email = {...billCfg.email, [b.dataset.ebskip]: 'ignored'}; store.set('bills', billCfg); toast('Ignored. Press Undo to bring it back.'); render(); }
 }
@@ -7706,6 +7837,7 @@ $('#tab-bills').addEventListener('change', e => {
   }
   else if (e.target.id === 'fcAvail') enterOffsetAvail(e.target.value);
   else if (e.target.id === 'regShow') { regShow = e.target.value; renderBills(); }
+  else if (/^wi[A-Z]/.test(e.target.id || '')) { readWhatIf(); renderBills(); }
 });
 // What the bank says is available to draw in the offset today: from the Bills forecast box or the button by the Rates row
 function enterOffsetAvail(text) {
@@ -7756,7 +7888,16 @@ $('#tab-overview').addEventListener('click', e => { // "See how last month went"
 });
 $('#tab-overview').addEventListener('toggle', e => { if (e.target.id === 'yearlyBox') yearlyOpen = e.target.open; }, true);
 $('#tab-overview').addEventListener('click', e => { // the Savings goals card
-  const b = e.target.closest('[data-goaledit], [data-goalup], [data-goaldown], [data-goalact], [data-yeargoal], [data-yearskip], [data-yeargo], [data-goalgo]'); if (!b) return;
+  const b = e.target.closest('[data-goaledit], [data-goalup], [data-goaldown], [data-goalact], [data-yeargoal], [data-yearskip], [data-yeargo], [data-goalgo], [data-yearpot], [data-yearadd], [data-potmove], [data-potdel]'); if (!b) return;
+  if ('yearadd' in b.dataset) return openYearlyAdd();
+  if ('potmove' in b.dataset) return movePotMoney(b.dataset.potmove);
+  if ('potdel' in b.dataset) return removeYearly(b.dataset.potdel);
+  if ('yearpot' in b.dataset) {
+    const all = b.dataset.yearpot === '*', picks = all ? yearlyCosts() : yearlyCosts().filter(x => x.id === b.dataset.yearpot);
+    for (const y of picks) addYearlyCost(y.name, y.amount, y.month, y.cat, y.id);
+    if (!picks.length) return;
+    yearlyOpen = true; savePlan(); refresh(); toast(picks.length === 1 ? 'Added to the yearly costs pot' : `Added ${picks.length} costs to the yearly costs pot`); return;
+  }
   if ('goalgo' in b.dataset) { const c = b.dataset.goalgo; selCat = c; tab = 'budgets'; render(); const r = $('#tab-budgets').querySelector(`tr[data-cat="${CSS.escape(c)}"]`); if (r) r.scrollIntoView({block: 'center'}); return; }
   if ('yeargo' in b.dataset) { yearlyOpen = true; txBack = true; tileGo(b.dataset.yeargo); return; }
   if ('yeargoal' in b.dataset) { const y = yearlyCosts().find(x => x.id === b.dataset.yeargoal); if (y) openGoal(null, y); return; }
