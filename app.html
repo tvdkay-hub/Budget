@@ -822,6 +822,11 @@ main th.sort-desc::after { content: ' ▼'; font-size: .75em; }
     </div>
   </form>
 </dialog>
+<dialog id="monthTxDlg" style="width:min(620px,94vw)">
+  <div class="row" style="justify-content:space-between;margin-bottom:4px"><h2 style="margin:0;font-size:16px" id="mtTitle"></h2><button type="button" class="btn sm" id="mtClose">✕ Close</button></div>
+  <p class="muted" id="mtInfo" style="margin:0 0 10px"></p>
+  <div class="catlist" style="margin-top:0"><table id="mtTable"><thead><tr><th><button type="button" class="linkbtn" data-mtsort="date">Date</button></th><th><button type="button" class="linkbtn" data-mtsort="name">Description</button></th><th class="num"><button type="button" class="linkbtn" data-mtsort="amount">Amount</button></th></tr></thead><tbody id="mtBody"></tbody></table></div>
+</dialog>
 <dialog id="billDlg">
   <form method="dialog">
     <h2 style="margin:0 0 12px;font-size:16px" id="blTitle">Add a bill</h2>
@@ -4149,13 +4154,14 @@ function renderBudgets() {
     if (pick) { // a category's name: open or close its panel. From the keyboard, focus goes to the panel (or back to the name).
       const c = pick.dataset.catpick;
       selCat = selCat === c ? null : c; renderBudgets(); showCatPanel(c);
-      const f = selCat ? $('#insClose') : el.querySelector(`[data-catpick="${CSS.escape(c)}"]`);
+      if (selCat) openMonthTx(c, m);
+      const f =selCat ? $('#insClose') : el.querySelector(`[data-catpick="${CSS.escape(c)}"]`);
       if (f && e.detail === 0) f.focus();
       return;
     }
     if (e.target.closest('input, button')) return;
     const tr = e.target.closest('tr[data-cat]');
-    if (tr) { const c = tr.dataset.cat; selCat = selCat === c ? null : c; renderBudgets(); showCatPanel(c); }
+    if (tr) { const c = tr.dataset.cat; selCat = selCat === c ? null : c; renderBudgets(); showCatPanel(c); if (selCat) openMonthTx(c, m); }
   });
   if (selCat) bindCategory(selCat, m, P, row); else bindSummary(m, P);
 }
@@ -4296,7 +4302,6 @@ function categoryHTML(c, m, P, row, t) {
   const avg3 = Math.ceil([1, 2, 3].reduce((s, i) => s + Math.max(0, P.spent(addMonths(m, -i), c)), 0) / 3);
   const quick = [['Same as last month', (plan.assigned[prevM] || {})[c] || 0], ['Spent last month', Math.max(0, P.spent(prevM, c))], ['Average spent (3 months)', avg3]];
   if (t && t.under > 0.005) quick.unshift(['Fund target', row.assigned[c] + t.under]);
-  const recent = txns.filter(x => x.date.startsWith(m) && !isInternal(x)).flatMap(x => partsOf(x).filter(p => p.cat === c && (KIND[c] !== 'transfer' || p.amount < 0)).map(p => ({...x, amount: p.amount})));
   const canDelete = !KEEP.includes(c);
   const every = [[0, 'once'], [1, 'every month'], [3, 'every 3 months'], [6, 'every 6 months'], [12, 'every year']], sugg = suggestTarget(c, m, P);
   return `
@@ -4345,9 +4350,7 @@ function categoryHTML(c, m, P, row, t) {
     ${KIND[c] === 'expense' ? `<label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;cursor:pointer"><input type="checkbox" id="fixedChk" style="margin-top:3px"${isFixed(c) ? ' checked' : ''}>
       <span><b>Fixed: comes out regardless</b><br><span class="muted" style="font-size:13px">Like a mortgage. It still counts in your balance, forecast and budget, but it's left out of your spending figures on the Overview, so they show your day-to-day habits.</span></span></label>` : ''}
   </div>
-  <div class="card"><h2>${monthLabel(m)} transactions</h2>
-    ${recent.length ? `<table>${recent.map(x => `<tr class="tdrow" data-tdopen="${esc(x.id)}" tabindex="0" role="button" title="See or change this transaction"><td class="muted" style="white-space:nowrap">${x.date.slice(8)}/${x.date.slice(5, 7)}</td><td>${esc(payeeName(x))}${x.split ? ' <span class="muted">(split)</span>' : ''}</td><td class="num ${x.amount > 0 ? 'pos' : ''}">${fmt2(x.amount)}</td></tr>`).join('')}</table>` : '<p class="muted" style="margin:0">None yet.</p>'}
-  </div>
+  <div class="card"><button class="btn sm" id="insMonthTx">See ${monthLabel(m)} transactions</button></div>
   ${canDelete ? `<div class="card"><div class="btnlist"><button class="btn sm" id="insEdit">Rename or move</button><button class="btn sm" id="insHide" title="${isHidden(c) ? 'Stop hiding it' : "Take it off the Budget tab, plan and pick-lists. Its transactions stay. You can show it again from Categories."}">${isHidden(c) ? 'Stop hiding' : 'Hide this category'}</button><button class="btn sm danger" id="insDel">Delete this category</button></div></div>` : ''}`;
 }
 
@@ -4359,12 +4362,7 @@ function bindCategory(c, m, P, row) {
   };
   $('#insMove').onclick = () => openMove(m, P, {from: '__RTA', to: c});
   $('#insTx').onclick = () => { Object.assign(txFilter, {q: '', cat: c, allMonths: false, show: ''}); tab = 'transactions'; render(); };
-  // Click (or Enter on) one of this month's transactions to see or change it; a split one opens its split
-  document.querySelectorAll('[data-tdopen]').forEach(r => {
-    const go = () => { const t = txns.find(x => x.id === r.dataset.tdopen); if (t) { if (t.split) openSplit(t); else openTxDlg(t); } };
-    r.onclick = go;
-    r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
-  });
+  $('#insMonthTx').onclick = () => openMonthTx(c, m);
   document.querySelectorAll('[data-set]').forEach(b => b.onclick = () => { setAssigned(m, c, +b.dataset.set); renderBudgets(); });
   const help = {'': '', monthly: 'Asks for the same amount every month, on top of whatever carried over. Unspent money builds up. If you want it to stop at a ceiling, use "Top up" instead.',
     weekly: 'Puts in the amount for every week: a month with 5 of your week-start day gets 5 lots, so groceries and the like never come up short.',
@@ -4973,6 +4971,37 @@ function openCatTx(c) {
   $('#ctOpen').hidden = !rows.length;
   const d = $('#catTxDlg'); d.returnValue = ''; d.showModal();
 }
+
+// A category's transactions for one month, in a pop-up you can sort. Esc, ✕ or a click outside closes it.
+let mtCat = '', mtMonth = '', mtSort = {key: 'date', dir: -1};
+function drawMonthTx() {
+  const rows = txns.filter(x => x.date.startsWith(mtMonth) && !isInternal(x)).flatMap(x => partsOf(x).filter(p => p.cat === mtCat && (KIND[mtCat] !== 'transfer' || p.amount < 0)).map(p => ({...x, amount: p.amount})));
+  const {key, dir} = mtSort;
+  rows.sort((a, b) => dir * (key === 'amount' ? a.amount - b.amount : key === 'name' ? payeeName(a).localeCompare(payeeName(b), undefined, {sensitivity: 'base'}) : a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  $('#mtTitle').textContent = `${mtCat}: ${monthLabel(mtMonth)}`;
+  $('#mtInfo').textContent = rows.length ? `${rows.length} transaction${rows.length === 1 ? '' : 's'}, ${fmt2(total)} altogether. Click a heading to sort. Click a transaction to see or change it.` : 'None yet.';
+  document.querySelectorAll('#mtTable [data-mtsort]').forEach(b => { const on = b.dataset.mtsort === key; b.textContent = b.textContent.replace(/ [▲▼]$/, '') + (on ? (dir < 0 ? ' ▼' : ' ▲') : ''); });
+  $('#mtBody').innerHTML = rows.map(x => `<tr class="tdrow" data-tdopen="${esc(x.id)}" tabindex="0" role="button" title="See or change this transaction"><td class="muted" style="white-space:nowrap">${x.date.slice(8)}/${x.date.slice(5, 7)}</td><td>${esc(payeeName(x))}${x.split ? ' <span class="muted">(split)</span>' : ''}</td><td class="num ${x.amount > 0 ? 'pos' : ''}">${fmt2(x.amount)}</td></tr>`).join('');
+}
+function openMonthTx(c, m) {
+  mtCat = c; mtMonth = m; mtSort = {key: 'date', dir: -1};
+  drawMonthTx();
+  const d = $('#monthTxDlg'); if (!d.open) d.showModal();
+}
+$('#mtClose').onclick = () => $('#monthTxDlg').close();
+$('#monthTxDlg').addEventListener('click', e => { // a click outside the box (on the dimmed page) closes it
+  const r = e.currentTarget.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) e.currentTarget.close();
+  const s = e.target.closest('[data-mtsort]');
+  if (s) { const k = s.dataset.mtsort; mtSort = {key: k, dir: mtSort.key === k ? -mtSort.dir : (k === 'name' ? 1 : -1)}; drawMonthTx(); return; }
+  const tr = e.target.closest('[data-tdopen]');
+  if (tr) { const t = txns.find(x => x.id === tr.dataset.tdopen); if (t) { e.currentTarget.close(); if (t.split) openSplit(t); else openTxDlg(t); } }
+});
+$('#monthTxDlg').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const tr = e.target.closest && e.target.closest('[data-tdopen]'); if (tr) { e.preventDefault(); tr.click(); }
+});
 
 // ---------- Split a transaction across categories ----------
 let spT = null, spFirst = '', spLines = []; // the transaction, its first category (gets whatever is left), the other lines {cat, amt}
