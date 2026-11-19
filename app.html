@@ -349,9 +349,13 @@ label[for=monthSel] { display: none; }
 .tile[data-tip] { cursor: help; }
 .tile .sub { margin-top: 2px; }
 .tile .accsplit, .bankbal .accsplit { display: flex; justify-content: space-between; gap: 10px; max-width: 220px; font-variant-numeric: tabular-nums; } /* one line per account under the Balance */
-.plain { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 28px; }
-.plain > div > b:first-child { display: block; margin-bottom: 4px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+.plain { display: block; }
+.plain > div { display: grid; grid-template-columns: 130px 1fr; gap: 4px 24px; padding: 12px 0; border-top: 1px solid var(--border); line-height: 1.6; }
+.plain > div:first-child { border-top: 0; padding-top: 2px; }
+.plain > div > b:first-child { padding-top: 3px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+.plain > div.help { border-left: 4px solid var(--warn); padding-left: 12px; margin-left: -16px; }
 .plain > div.help > b:first-child { color: var(--warn); }
+@media (max-width: 700px) { .plain > div { grid-template-columns: 1fr; } .plain > div.help { margin-left: 0; } }
 /* Budget tab: the Ready to Assign card's lines, and the "show empty categories" row */
 .rlines { flex: 1; min-width: 260px; }
 .rline { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; padding: 7px 0; }
@@ -2521,26 +2525,27 @@ function soonHTML(m, P, f) {
   for (const e of [...f.events, ...(f.topups || []).map(t => ({date: t.date, name: 'Top-up from the offset (if needed)', amount: t.amount}))]) (byDay[dayOf(e)] = byDay[dayOf(e)] || []).push(e);
   const iLow = f.pts.indexOf(low);
   // A dot on every day something comes in or goes out (hover for what), and a short label on the three biggest
-  const evDays = f.pts.map((p, i) => [i, (byDay[p.date] || []).filter(e => e.amount !== 0)]).filter(([, l]) => l.length);
+  const evDays = f.pts.map((p, i) => [i, (byDay[p.date] || []).filter(e => e.amount !== 0 && !e.outside)]).filter(([, l]) => l.length); // bills paid from the offset don't move this balance, so no dot or label
   const big = evDays.map(([i, l]) => ({i, e: l.reduce((a, e) => Math.abs(e.amount) > Math.abs(a.amount) ? e : a)})).filter(x => x.i !== iLow).sort((a, b) => Math.abs(b.e.amount) - Math.abs(a.e.amount)).slice(0, 3);
   const chart = lineChart({xs: f.pts.map((_, i) => i), ys: f.pts.map(p => p.bal), label: `Expected balance over the next ${FC_DAYS} days`, go: f.pts.map(() => 'billview:fc'),
     ticks: f.pts.map((p, i) => [i, i ? shortDay(p.date) : 'Today']).filter(([i]) => i % 7 === 0), marks: [...new Set([iLow, ...evDays.map(([i]) => i)])],
     labels: [[iLow, 'Lowest ' + fmt(low.bal)], ...big.map(x => [x.i, `${x.e.name.length > 14 ? x.e.name.slice(0, 13) + '…' : x.e.name} ${x.e.amount > 0 ? '+' : '−'}${fmt(Math.abs(x.e.amount))}`])],
-    tips: f.pts.map(p => `<b>${dayLabel(p.date)}</b><br>Balance about ${fmt2(p.bal)}` + (byDay[p.date] || []).map(e => `<br>${esc(e.name)} ${fmt2(e.amount)}`).join(''))});
+    tips: f.pts.map(p => `<b>${dayLabel(p.date)}</b><br>Balance about ${fmt2(p.bal)}` + (byDay[p.date] || []).map(e => `<br>${esc(e.name)} ${fmt2(e.amount)}${e.outside ? ' (paid from the offset)' : ''}`).join(''))});
   const until = addDays(today, 14), soon = f.events.filter(e => e.date <= until);
   // Bills checked against their category, then Ready to Assign, then pay that comes in before them (see billCover)
   const outs = soon.filter(e => e.amount < 0), covers = P && P.by[m] ? billCover(outs.map(e => ({date: e.date, amount: -e.amount, cat: e.cat, outside: e.outside})), P.by[m], f.events.filter(e => e.amount > 0)) : [];
   outs.forEach((e, i) => { e.cover = covers[i]; });
-  const status = e => e.amount > 0 ? '<span class="muted">money in</span>' : coverText(e.cover, e.cat);
-  return `<div class="grid2">
-    <div class="card"><h2>Your balance: the next 6 weeks</h2>${chart}
-      <p class="muted" style="font-size:12px;margin:6px 0 0">From the bills and regular money in on the Bills tab${fcEveryday ? ', plus typical everyday spending' : ''}. <button type="button" class="linkbtn" data-gotab="bills">See the details</button></p></div>
+  const status = e => e.amount > 0 ? '<span class="muted">money in</span>' : coverText(e.cover, e.cat, true);
+  const funded = e => e.cover && e.cover.have > 0.005 ? `${fmt2(e.cover.have)} of ${fmt2(e.cover.of)}` : '';
+  return `<div class="grid2" style="grid-template-columns:1fr">
     <div class="card"><h2>Coming up in the next 2 weeks</h2>
-      ${soon.length ? `<table>${soon.map(e => `<tr${e.bkey ? ` class="billrow" data-bill="${esc(e.bkey)}" title="See or change this"` : ''}><td style="white-space:nowrap">${shortDay(e.due)}</td><td>${esc(e.name)}</td><td class="num ${e.amount > 0 ? 'pos' : ''}">${fmt2(e.amount)}</td><td class="num cstat" style="font-size:13px">${status(e)}</td></tr>`).join('')}</table>`
+      ${soon.length ? `<table><thead><tr class="muted" style="font-size:12px;text-align:left"><th>Date</th><th>What</th><th class="num">Amount</th><th class="num">Funded so far</th><th class="num">Status</th></tr></thead>${soon.map(e => `<tr${e.bkey ? ` class="billrow" data-bill="${esc(e.bkey)}" title="See or change this"` : ''}><td style="white-space:nowrap">${shortDay(e.due)}</td><td>${esc(e.name)}</td><td class="num ${e.amount > 0 ? 'pos' : ''}">${fmt2(e.amount)}</td><td class="num muted" style="font-size:13px">${funded(e)}</td><td class="num cstat" style="font-size:13px">${status(e)}</td></tr>`).join('')}</table>`
         : '<p class="muted">Nothing due in the next 2 weeks.</p>'}
       ${soon.some(e => e.cover && e.cover.state === 'short') ? `<p style="font-size:13px;margin:8px 0 0"><span style="color:var(--warn)">!</span> Some bills come out before there's money for them. <button type="button" class="linkbtn" data-gotab="budgets">Look at the Budget tab</button></p>`
         : soon.some(e => e.cover && (e.cover.state === 'rta' || e.cover.state === 'pay')) ? `<p class="muted" style="font-size:13px;margin:8px 0 0">Bills marked ✓ in Ready to Assign or ✓ after pay are fine, but still need money assigned to them. <button type="button" class="linkbtn" data-gotab="budgets">Assign on the Budget tab</button></p>` : ''}
-    </div></div>`;
+    </div>
+    <div class="card"><h2>Your balance: the next 6 weeks</h2>${chart}
+      <p class="muted" style="font-size:12px;margin:6px 0 0">From the bills and regular money in on the Bills tab${fcEveryday ? ', plus typical everyday spending' : ''}. <button type="button" class="linkbtn" data-gotab="bills">See the details</button></p></div></div>`;
 }
 
 // Paying back money you owe (a bill of yours with a total to pay back): how far along it is. A paid-off one stays a month.
@@ -2599,7 +2604,7 @@ function plainHTML(m, P, f, pd, b) {
     if (big.length) li.push(['Biggest payments', nameList(big.map(x => `${esc(x.n)} <b>${fmt(x.v)}</b>`)) + '.']);
     const over = row ? Object.entries(row.available).filter(([, v]) => v < -0.005) : [];
     if (over.length) li.push(['Over budget', `${over.length === 1 ? esc(over[0][0]) + ' ended' : over.length + ' categories ended'} the month overspent by <b>${fmt(-over.reduce((t, [, v]) => t + v, 0))}</b>.`]);
-    return card(`<div class="plain">${li.map(([h, t]) => `<div><b>${h}</b>${t}</div>`).join('')}</div>`);
+    return card(`<div class="plain">${li.map(([h, t]) => `<div><b>${h}</b><span>${t}</span></div>`).join('')}</div>`);
   }
   const today = f.today;
   // What the tiles mean, in words. The numbers themselves are on the tiles, so this says what they add up to and what to do.
@@ -2701,7 +2706,7 @@ function plainHTML(m, P, f, pd, b) {
     }
     li.push(['What would help', s]);
   }
-  return card(`<div class="plain">${li.map(([h, t]) => `<div${h === 'What would help' ? ' class="help"' : ''}><b>${h}</b>${t}</div>`).join('')}</div>` + breakdown);
+  return card(`<div class="plain">${li.map(([h, t]) => `<div${h === 'What would help' ? ' class="help"' : ''}><b>${h}</b><span>${t}</span></div>`).join('')}</div>` + breakdown);
 }
 let payPeriod = '1'; // Top payees: how many months back from the one being viewed ('1', '3', '6', '12') or 'all'
 const PAY_PERIODS = {'1': 'month', '3': '3 months', '6': '6 months', '12': 'year', all: 'all time'};
@@ -5426,14 +5431,15 @@ function billCover(items, row, ins) {
     let rest = round2(x.amount - fromCat);
     if (rest < 0.005) return {state: 'covered'};
     const r = Math.min(rest, rta); rta -= r; rest = round2(rest - r);
-    if (rest < 0.005) return {state: 'rta'};
+    const part = {have: round2(fromCat), of: x.amount}; // how much of it is already in its category (partly funded)
+    if (rest < 0.005) return {state: 'rta', ...part};
     const p = Math.min(rest, paid); paid -= p; rest = round2(rest - p);
-    if (rest < 0.005) return {state: 'pay', payDate: lastPay};
-    return {state: 'short', short: rest};
+    if (rest < 0.005) return {state: 'pay', payDate: lastPay, ...part};
+    return {state: 'short', short: rest, ...part};
   });
 }
-const coverText = (c, cat) => !c || !c.state ? ''
-  : c.state === 'outside' ? '<span class="pos" title="Paid with money from outside this budget, like your offset">✓ paid from outside</span>'
+const coverText = (c, cat, noFunded) => !c || !c.state ? '' : coverText1(c, cat) + (c.have > 0.005 && !noFunded ?` <span class="muted" title="Already assigned to ${esc(cat)} for this bill">(${fmt2(c.have)} of ${fmt2(c.of)} funded, ${fmt2(c.of - c.have)} to go)</span>` : '');
+const coverText1 = (c, cat) => c.state === 'outside' ? '<span class="pos" title="Paid with money from outside this budget, like your offset">✓ paid from outside</span>'
   : c.state === 'covered' ? `<span class="pos" title="${esc(cat)} has the money for this">✓ covered</span>`
   : c.state === 'rta' ? `<span class="pos" title="Ready to Assign has the money: assign it to ${esc(cat)}">✓ in Ready to Assign</span>`
   : c.state === 'pay' ? `<span style="color:var(--series-1)" title="Not in ${esc(cat)} yet, but your pay on ${dayLabel(c.payDate)} comes in by the time this is due. Assign it when it arrives.">✓ after pay ${shortDay(c.payDate)}</span>`
