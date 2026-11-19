@@ -610,6 +610,11 @@ body.printing #report .btn.primary { background: #2a78d6; color: #fff; }
   table.plan th, table.plan td { padding: 8px 4px; }
   table.plan th:first-child, table.plan td:first-child { padding-left: 10px; }
   input.asg { width: 66px; }
+  table.plan { width: 100%; table-layout: fixed; } /* fit the screen: the name column takes what's left and wraps */
+  table.plan th.num, table.plan td.num { width: 21%; }
+  table.plan td:first-child, table.plan td:first-child * { overflow-wrap: anywhere; }
+  table.plan .pill, table.plan input.asg { max-width: 100%; box-sizing: border-box; }
+  table.plan input.asg { width: 100%; }
   .cstat { white-space: normal; }
   .fcbalc { display: none; }
   .fcbal { display: block; font-size: 12px; color: var(--text-muted); font-weight: 400; white-space: nowrap; }
