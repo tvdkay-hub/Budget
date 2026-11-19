@@ -151,6 +151,20 @@ table.plan.lite .cmeta { display: flex; }
 /* A bill due within 3 days: a steady red badge if the money isn't there, steady green if it is (no blinking) */
 .due-short, .due-short .muted { color: var(--bad); font-weight: 600; }
 .due-ok, .due-ok .muted { color: var(--good); }
+/* Info pills on a budget row: soft, filled, no border, so they don't look like the outlined buttons */
+.pills { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.pills > .wsugg { display: contents; }
+.ipill, .rowflag { text-transform: uppercase; letter-spacing: .04em; }
+.ipill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 11px; line-height: 1.6; white-space: nowrap; color: var(--text-secondary, inherit); background: color-mix(in srgb, var(--border) 60%, transparent); }
+.ipill b { font-weight: 600; }
+.ipill.good, .ipill:has(.ok, .paycov) { color: var(--good); background: color-mix(in srgb, var(--good) 13%, transparent); }
+.ipill:has(.due-short) { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.ipill:has(.due-ok) { background: color-mix(in srgb, var(--good) 13%, transparent); }
+.rowflag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.rowflag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.rowflag.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+tr.cat.flag-warn > td:first-child { box-shadow: inset 4px 0 0 var(--warn); background: color-mix(in srgb, var(--warn) 7%, transparent); }
+tr.cat.flag-bad > td:first-child { box-shadow: inset 4px 0 0 var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .btn.sm { padding: 3px 9px; font-size: 12px; }
 @media (pointer: coarse) { button.xbtn { min-width: 40px; min-height: 40px; font-size: 15px; } .btn.sm, .btn.take { min-height: 40px; padding: 8px 12px; } .ubadge button.xbtn, .chip button.xbtn { min-width: 32px; min-height: 32px; } }
@@ -3465,30 +3479,18 @@ function planTip(r) {
   return s.join(' ');
 }
 // The funding plan in one line, for the Ready to Assign box: what each priority gets, what's spare, and a button for the "now" amounts
-const PRIORITY_SHORT = ['', 'Bills', 'Essentials', 'Nice to have', 'Build up'];
 function planSumHTML(FP) {
   if (!FP || !FP.chunks.length) return '';
   const now = round2(Object.values(FP.by).reduce((s, r) => s + r.now, 0)), t = n => FP.tiers[n - 1];
-  const bits = FP.tiers.filter(x => x.want > 0.005).map(x => {
-    const got = round2(x.want - x.gap);
-    const note = x.gap < 0.005 && x.late < 0.005 ? '<span class="pos">✓</span>'
-      : x.n <= 2 ? `<span class="warnt">! ${x.gap > 0.005 ? `${fmt2(x.gap)} short` : `${fmt2(x.late)} late`}</span>`
-      : x.gap > 0.005 ? `<span class="muted">of ${fmt2(x.want)}</span>` : '<span class="muted">after pay</span>';
-    const tip = [ '',
-      `Bills still to pay this month. They're always funded first.${x.gap < 0.005 && x.late < 0.005 ? ' There is enough to cover them all.' : ''}`,
-      `Things you need, like groceries and fuel. Funded after bills.${x.gap < 0.005 && x.late < 0.005 ? ' There is enough to cover them all.' : ''}`,
-      `Treats and takeaways. They get what's left after bills and essentials.${x.gap > 0.005 ? ` You planned ${fmt2(x.want)} but only ${fmt2(got)} is available.` : ' There is enough for all of it.'}`,
-      `Savings. They get what's left after everything above.${x.gap > 0.005 ? ` You asked for ${fmt2(x.want)} but only ${fmt2(got)} is available this month.` : ' There is enough for all of it.'}` ][x.n];
-    return `<span class="pltier" data-tip="${esc(tip)}">${PRIORITY_SHORT[x.n]} <b>${fmt2(x.n >= 3 ? got : x.want)}</b> ${note}</span>`;
-  });
+  const bits = [];
   bits.push(`<span class="pltier" data-tip="Money left over after everything above is funded.">Spare <b>${fmt2(FP.spare)}</b>${FP.spareNow > 0.005 ? ` <span class="muted">(${FP.spareNow >= FP.spare - 0.005 ? 'all' : fmt2(FP.spareNow)} of it now)</span>` : ''}</span>`);
   const moves = Object.values(FP.by).some(r => r.moves.length);
-  const hint = t(1).gap + t(1).late + t(2).gap + t(2).late > 0.005 ? (moves ? 'Use the <b>Take</b> buttons in the rows marked ! to move money from nice-to-haves.' : 'Move money over from another category, or ask the biller for a later date.')
+  const hint = t(1).gap + t(1).late + t(2).gap + t(2).late > 0.005 ? (moves ? 'Some bills or essentials are flagged below. Use the <b>Take</b> buttons on those rows to move money from nice-to-haves.' : 'Move money over from another category, or ask the biller for a later date.')
     : t(3).gap > 0.005 ? "Nice-to-haves only get what's left after bills and essentials."
     : FP.spare > 0.005 && t(4).want < 0.005 ? 'To build up savings with the spare, give a Build up category (like Savings & Investing) a target.' : '';
   // The order and the tip show on hover; a problem with bills or essentials stays in sight
   const problem = t(1).gap + t(1).late + t(2).gap + t(2).late > 0.005;
-  return `<div class="rline plsum" data-tip="${esc('Bills first, then essentials, then nice-to-haves, then build-ups. ' + hint.replace(/<[^>]+>/g, ''))}"><span><b>Plan for the rest of ${monthLabel(FP.m)}:</b> ${bits.join(' · ')}${problem ? `<br><span class="muted" style="font-size:12px">${hint}</span>` : ''}</span>
+  return `<div class="rline plsum" data-tip="${esc('Bills first, then essentials, then nice-to-haves, then build-ups. ' + hint.replace(/<[^>]+>/g, ''))}"><span><b>After the plan for ${monthLabel(FP.m)}:</b> ${bits.join(' · ')}${problem ? `<br><span class="muted" style="font-size:12px">${hint}</span>` : ''}</span>
     ${now > 0.005 ? `<button type="button" class="btn sm primary" id="planNow" title="${esc('Puts in each row\'s +now amount:\n' + Object.entries(FP.by).filter(([, r]) => r.now > 0.005).sort((a, b) => b[1].now - a[1].now).map(([c, r]) => `${c}: ${fmt2(r.now)}`).join('\n'))}">Assign the plan's amounts (${fmt2(now)})</button>` : ''}</div>`;
 }
 // Take money back from one category for another (the plan's "Take" buttons)
@@ -3883,7 +3885,16 @@ function renderBudgets() {
     const when = days <= 0 ? 'Due today' : days === 1 ? 'Due tomorrow' : `Due in ${days} days`;
     const pp = short > 0.005 && paidByPay(FP, c);
     if (pp) return {cls: 'due-ok', tip: `${when}. Your pay on ${dayLabel(pp)} covers it ✓`};
-    return short > 0.005 ? {cls: 'due-short', tip: `${when}, and ${fmt2(short)} short. Assign more to it.`} : {cls: 'due-ok', tip: `${when}. The money's there ✓`};
+    return short > 0.005 ? {cls: 'due-short', tip: `${when}, and ${fmt2(short)} short. Assign more to it.`, label: `${when.toLowerCase()}: ${fmt2(short)} short`} : {cls: 'due-ok', tip: `${when}. The money's there ✓`};
+  };
+  // A bill or essential that won't be covered: a badge by its name and a coloured edge on its row (red = due within a few days and short, amber = short or late later in the month)
+  const flagOf = c => {
+    if (row.available[c] < -0.005) return null; // overspent rows already say so
+    const d = dueOf(c);
+    if (d && d.cls === 'due-short') return {cls: 'bad', label: '! ' + d.label, tip: d.tip};
+    const r = FP && FP.by[c], late = r ? r.late.filter(l => l.x.tier <= 2) : [], amt = round2(late.reduce((s, l) => s + l.amount, 0));
+    if (amt > 0.005) return {cls: 'warn', label: `! ${fmt2(amt)} ${late.some(l => !l.date) ? 'short' : 'late'}`, tip: planTip(r)};
+    return null;
   };
   // Spending pace (this month only, everyday and fun categories that aren't bills or fixed costs): "fast" when you've used more of its
   // money than the time gone by allows, "all used" when nothing is left. Only for categories with a weekly or monthly target: a weekly one is
@@ -3949,14 +3960,12 @@ function renderBudgets() {
     const tn =FP && FP.topNext && FP.topNext[c], r = (FP && FP.by[c]) || (tn && tn.met ? {now: 0, later: [], late: [], moves: []} : null);
     if (!r) return '';
     const bits = [], nx = r.later[0], sum = f => round2(r.late.filter(f).reduce((s, l) => s + l.amount, 0));
-    const late = sum(l => l.date && l.x.tier <= 2), gap = sum(l => !l.date && l.x.tier <= 2), wont = sum(l => !l.date && l.x.tier >= 3);
+    const wont = sum(l => !l.date && l.x.tier >= 3);
     if (r.now > 0.005) bits.push(`<button type="button" class="btn sm sugg" data-sugg="${esc(c)}" title="From Ready to Assign (${fmt2(Math.max(0, row.rta))} available)">${suggVerb(c)} ${fmt2(r.now)}</button>`);
-    if (nx) bits.push(`<span class="muted">${r.now > 0.005 ? 'then ' : ''}${fmt2(nx.amount)} on ${shortDay(nx.date)}${r.later.length > 1 ? ' …' : ''}</span>`);
-    if (late > 0.005) bits.push(`<b class="warnt">! ${fmt2(late)} late</b>`);
+    if (nx) bits.push(`<span class="ipill">${r.now > 0.005 ? 'then ' : ''}${fmt2(nx.amount)} on ${shortDay(nx.date)}${r.later.length > 1 ? ' …' : ''}</span>`);
     if (tn && tn.met && tn.opt > 0.005) bits.push(`<button type="button" class="btn sm sugg opt" data-opt="${esc(c)}" title="This week is already covered. This puts next week's money in early, from Ready to Assign (${fmt2(Math.max(0, row.rta))} available).">Optional: ${suggVerb(c).toLowerCase()} ${fmt2(tn.opt)} for next week</button>`);
-    else if (tn && !(tn.met && r.now < 0.005 && !r.later.length)) bits.push(`<span class="muted" title="${tn.build ? `Next week another ${fmt2(tn.amount)} goes in, on top of whatever is left.` : `Next week it only needs topping up to ${fmt2(tn.amount)}, whatever is left over.`}">${r.now > 0.005 ? 'then ' : ''}${tn.build ? '' : 'top up to '}${fmt2(tn.amount)} on ${shortDay(tn.date)}</span>`);
-    if (gap > 0.005) bits.push(`<b class="warnt">! ${fmt2(gap)} short</b>`);
-    if (wont > 0.005) bits.push(`<span class="muted">${fmt2(wont)} won't fit</span>`);
+    else if (tn && !(tn.met && r.now < 0.005 && !r.later.length)) bits.push(`<span class="ipill" title="${tn.build ? `Next week another ${fmt2(tn.amount)} goes in, on top of whatever is left.` : `Next week it only needs topping up to ${fmt2(tn.amount)}, whatever is left over.`}">${r.now > 0.005 ? 'then ' : ''}${tn.build ? '' : 'top up to '}${fmt2(tn.amount)} on ${shortDay(tn.date)}</span>`);
+    if (wont > 0.005) bits.push(`<span class="ipill">${fmt2(wont)} won't fit</span>`); // (bills and essentials that are late or short are flagged on the row itself)
     for (const mv of r.moves) bits.push(`<button type="button" class="btn sm take" data-take="${esc(mv.from)}" data-to="${esc(c)}" data-amt="${mv.amount}">Take ${fmt2(mv.amount)} from ${esc(mv.from)}</button>`);
     return `<span class="wsugg" title="${esc(planTip(r))}">${bits.join(' ')}</span>`;
   };
@@ -3965,7 +3974,13 @@ function renderBudgets() {
   const monShort = new Date(m + '-01T00:00:00').toLocaleDateString('en-NZ', {month: 'short'});
   const paidMonth = (c, n, done) => { const b = billsOf(c)[0]; return !!(done && !n.pay && b && b.next.slice(0, 7) > m && (row.activity[c] || 0) < -0.005); };
   const okTxt = (c, n, done) => paidMonth(c, n, done) ? `<b class="ok" title="This month's bill has been paid. The next one is next month, from next month's money.">✓ Paid for ${monShort}</b>` : '<b class="ok">✓ Funded</b>';
-  const payDue = c => { const b = billsOf(c)[0]; return b ? `${fmt2(b.amount)} due ${dayLabel(b.next)}` : ''; }; // a bill your pay covers: just what and when
+  // a bill your pay covers: what's still needed and when it's due (less anything already set aside), plus the full bill amount if some is set aside
+  const payDue = c => {
+    const b = billsOf(c)[0]; if (!b) return [];
+    const set = Math.min(b.amount, Math.max(0, row.available[c] || 0)), rem = round2(b.amount - set);
+    if (set < 0.005) return [`${fmt2(b.amount)} due ${dayLabel(b.next)}`];
+    return [`${rem > 0.005 ? fmt2(rem) + ' ' : ''}due ${dayLabel(b.next)}`, `<span title="The whole bill. ${fmt2(set)} of it is already set aside.">${fmt2(b.amount)} bill</span>`];
+  };
   const barCls = (n, done) => n.pay ? ' class="pay"' : done ? '' : ' class="part"';
   const SEG_TIP = 'Solid: money set aside in this category now (orange until it covers the bills, then green). Striped: covered by your next pay, not in the category yet. Dark: already paid this month.';
   // A category whose bills are paid from outside the budget (like rates, from the offset): no budget money goes to it, so the row just
@@ -3991,7 +4006,7 @@ function renderBudgets() {
     return `<span class="tbar seg" title="${esc(SEG_TIP)}"><span class="paid" style="width:${w(s.paid)}"></span><span${done ? '' : ' class="part"'} style="width:${w(s.set)}"></span><span class="payd" style="width:${w(s.pay)}"></span></span>`;
   };
   // Words for a bill category: ✓ All paid / ✓ Funded / a %, then paid, set aside and from-pay amounts
-  const segTxt = (n, done) => {
+  const segParts = (n, done) => {
     const s = n.seg, bits = [], covered = s.due >= 0.005 && s.pay > 0.005 && s.set + s.pay >= s.due - 0.005 && !done;
     const head = s.due < 0.005 ? `<b class="ok" title="This month's bills have been paid. The next ones are next month, from next month's money.">✓ All paid for ${monShort}</b>`
       : done ? '<b class="ok" title="Money is set aside for this month’s bills">✓ Funded</b>'
@@ -3999,8 +4014,10 @@ function renderBudgets() {
     if (s.paidTotal > 0.005) bits.push(`<span class="segpaid" title="Already paid this month">${fmt2(s.paidTotal)} paid${s.mode === 'next' && s.due >= 0.005 ? ' so far this month' : ''}</span>`);
     if (s.set > 0.005) bits.push(`${fmt2(s.set)} set aside`);
     if (s.pay > 0.005 && !covered) bits.push(`<span class="paycov" title="Your pay on ${dayLabel(n.payDate)} covers it">${fmt2(s.pay)} from pay ${shortDay(n.payDate)}</span>`);
-    return head + (bits.length ? ' · ' + bits.join(' · ') : '');
+    return [head, ...bits];
   };
+  const segTxt = (n, done) => segParts(n, done).join(' · ');
+  const pillOf = h => `<span class="ipill${/class="(ok|paycov)"/.test(h) ? ' good' : ''}">${h}</span>`; // a soft, filled info pill (not a button)
   const metaOf = (c, t) => {
     const tip = t ? ` title="Target: ${esc(t.label)}"` : '';
     if (row.available[c] < -0.005) return `<div class="cmeta bad"><span><b>✕ Overspent</b>${overSince(c)} ${cover(c)}</span></div>`;
@@ -4008,13 +4025,14 @@ function renderBudgets() {
     const n = needOf(c, t), wt = whenText(c);
     if (!n && !wt) return '';
     const done = n && n.pct >= 0.995 && n.togo <= 0.005, bits = [];
-    if (n) bits.push(n.seg ? segTxt(n, done) + (!done && n.togo > 0.005 ? ` · ${fmt2(n.togo)} to go` : '') : n.pay ? payTxt(n) : done ? okTxt(c, n, done) : `<b>${Math.round(n.pct * 100)}%</b>${n.togo > 0.005 ? ` · ${fmt2(n.togo)} to go` : ''}`);
-    if (n && n.pay) { const pd = payDue(c); if (pd) bits.push(dueWrap(c, n, pd)); } // the pay covers it: what's due and when (the plan would only repeat it)
-    else if (wt) bits.push(dueWrap(c, n, (paidMonth(c, n, done) ? 'next ' : '') + wt));
+    const togo = n && !done && n.togo > 0.005 ? [`${fmt2(n.togo)} to go`] : [];
+    if (n) bits.push(...(n.seg ? [...segParts(n, done), ...togo] : n.pay ? [payTxt(n)] : done ? [okTxt(c, n, done)] : [`<b>${Math.round(n.pct * 100)}%</b>`, ...togo]).map(pillOf));
+    if (n && n.pay) { const pd = payDue(c); if (pd.length) bits.push(pillOf(dueWrap(c, n, pd[0])), ...pd.slice(1).map(pillOf)); } // the pay covers it: what's due and when (the plan would only repeat it)
+    else if (wt) { bits.push(pillOf(dueWrap(c, n, (paidMonth(c, n, done) ? 'next ' : '') + wt))); const bl = billsOf(c); if (bl.length === 1) bits.push(pillOf(`${fmt2(bl[0].amount)} bill`)); }
     const pl = n && n.pay ? '' : planOf(c);
     if (pl) bits.push(pl);
     const bar = n ? barHTML(n, done) : '';
-    return `<div class="cmeta"${tip}>${bar}<span>${bits.join(' · ')}</span></div>`;
+    return `<div class="cmeta"${tip}>${bar}<span class="pills">${bits.join('')}</span></div>`;
   };
   const colsOf = (c, t) => {
     const tip = t ? ` title="Target: ${esc(t.label)}"` : '';
@@ -4038,8 +4056,9 @@ function renderBudgets() {
     if (av < -0.005) pill = 'neg';
     else if (t && t.under > 0.005 && !paidByPay(FP, c)) pill = 'under';
     else if (av > 0.005) pill = 'has';
-    return `<tr class="cat${selCat === c ? ' sel' : ''}" data-cat="${esc(c)}">
-      <td><button type="button" class="catname" data-catpick="${esc(c)}" aria-expanded="${selCat === c}" title="Show its target, details and transactions">${esc(c)}</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${FAMILY && t && t.outside ? `${ofInfo() ? ` <span class="muted offnow" title="What's left to draw in the offset today">Offset: <b>${fmt2(ofInfo().now)}</b> available</span>` : ''} <button type="button" class="btn sm" data-offavail title="Type what your bank says is available to draw in the offset now">Update offset</button>` : ''}${paceBadge(c)}${metaOf(c, t)}</td>${colsOf(c, t)}
+    const fl = flagOf(c);
+    return `<tr class="cat${selCat === c ? ' sel' : ''}${fl ? ' flag-' + fl.cls : ''}" data-cat="${esc(c)}">
+      <td><button type="button" class="catname" data-catpick="${esc(c)}" aria-expanded="${selCat === c}" title="Show its target, details and transactions">${esc(c)}</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${FAMILY && t && t.outside ? `${ofInfo() ? ` <span class="muted offnow" title="What's left to draw in the offset today">Offset: <b>${fmt2(ofInfo().now)}</b> available</span>` : ''} <button type="button" class="btn sm" data-offavail title="Type what your bank says is available to draw in the offset now">Update offset</button>` : ''}${paceBadge(c)}${fl ? ` <span class="rowflag ${fl.cls}" title="${esc(fl.tip)}">${esc(fl.label)}</span>` : ''}${metaOf(c, t)}</td>${colsOf(c, t)}
       <td class="num"><input type="text" inputmode="decimal" class="asg" data-asg="${esc(c)}" value="${row.assigned[c] ? row.assigned[c].toFixed(2) : ''}" placeholder="0.00" title="Type an amount. +50 adds, -20 takes away."></td>
       <td class="num">${fmt2(row.activity[c])}</td>
       <td class="num"><span class="pill ${pill}">${fmt2(av)}</span></td></tr>`;
