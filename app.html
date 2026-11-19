@@ -390,6 +390,9 @@ label[for=monthSel] { display: none; }
 .rta-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .rta-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; flex: 1 1 280px; }
 .rta-status .pillst { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-weight: 600; font-size: 13px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
+.rta .statpills { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rta .statpills .pillst { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; padding: 4px 12px; border-radius: 999px; font-weight: 600; font-size: 12px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
+.rta .statpills .pillst.neutral { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 14%, transparent); }
 .rta-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .rta-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 .rta .stat { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--surface-2, var(--bg)) 55%, transparent); min-width: 0; }
@@ -397,7 +400,27 @@ label[for=monthSel] { display: none; }
 .rta .stat .amt { font-size: 28px; line-height: 1.15; margin: 4px 0 2px; }
 .rta .stat.main { border-color: color-mix(in srgb, var(--tone) 45%, var(--border)); background: color-mix(in srgb, var(--tone) 8%, transparent); }
 .rta .stat .sub { font-size: 12px; color: var(--text-muted); }
-.rta .stat .accsplit { max-width: 220px; }
+/* Rearranging the Overview tiles */
+.tilebar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 8px; }
+.tiles.editing .tile { position: relative; cursor: grab; border-style: dashed; }
+.tiles.editing .tile.dragging { opacity: .4; }
+.tiles.editing .tile .tmove { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; align-items: center; font-size: 13px; }
+.tiles.editing .tile .tmove [data-tmove] { cursor: pointer; padding: 2px 6px; border-radius: 6px; background: color-mix(in srgb, var(--text-muted) 18%, transparent); }
+.tiles.editing .tile .tmove .tgrip { font-size: 16px; color: var(--text-muted); }
+/* Pill rows inside tiles: label left, amount right, same size and gap every time */
+.prows, .tile .sub:has(.accsplit) { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.prow, .tile .accsplit { display: flex; align-items: center; justify-content: space-between; gap: 10px; max-width: none; padding: 4px 12px; border-radius: 999px; font-weight: 600; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); background: color-mix(in srgb, var(--text-muted) 14%, transparent); }
+.prow.good { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.prow.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.prow.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.tile .accsplit.muted { color: var(--text-muted); font-weight: 500; }
+.rta .stat .accsplit { max-width: none; }
+/* Bank balance tile: one pill per account */
+.rta .bankbal .sub { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rta .bankbal .accsplit { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; padding: 4px 12px; border-radius: 999px; font-weight: 600; font-size: 12px; color: var(--text); background: color-mix(in srgb, var(--text-muted) 14%, transparent); }
+/* All tile pills: centred text with room to breathe, so nothing touches the edge (rows that don't fit wrap neatly) */
+.prow, .tile .accsplit, .rta .statpills .pillst, .rta .bankbal .accsplit { justify-content: center; text-align: center; flex-wrap: wrap; column-gap: 8px; row-gap: 0; padding: 6px 18px; border-radius: 18px; line-height: 1.3; }
+.rta .bankbal .accsplit.muted { color: var(--text-muted); font-weight: 500; }
 .rta .sbar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--border) 80%, transparent); overflow: hidden; margin: 6px 0 4px; }
 .rta .sbar > i { display: block; height: 100%; border-radius: 3px; background: var(--series-1, var(--good)); }
 .rta .callout { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--series-1, var(--border)) 9%, transparent); border: 1px solid color-mix(in srgb, var(--series-1, var(--border)) 28%, var(--border)); }
@@ -2774,7 +2797,8 @@ function renderOverview() {
     const nxFx = -nxFixed.reduce((s, e) => s + e.amount, 0);
     const ws = weekSpend(), wa = weekAllowance(); // this week against your weekly allowance
     const to = wa ? goalTradeoff(wa.funLeft) : []; // what unspent fun money would add to the goals
-    const fp = funPots(wa), potLines = fp && fp.pots.length ? fp.pots.map(p => `<br>${esc(p.c)}: ${p.over > 0.005 ? `<b style="color:var(--bad)">${fmt(p.over)} over</b> its ${fmt(p.target)}` : `${fmt(p.left)} left of ${fmt(p.target)}`}` + (p.overMonth > p.over + 0.005 ? ` · ${fmt(p.overMonth)} over this month` : '')).join('') + (fp.short ? `<br><b>Fun money doesn't cover all ${fp.pots.length} (${fmt(fp.total)} a week)</b>` : '') : '';
+    const fp = funPots(wa), potLines = fp && fp.pots.length ? `<div class="prows">` + fp.pots.map(p => prow(esc(p.c), p.over > 0.005 ? `${fmt(p.over)} over its ${fmt(p.target)}` : `${fmt(p.left)} left of ${fmt(p.target)}`, p.over > 0.005 ? 'bad' : '')
+      + (p.overMonth > p.over + 0.005 ? prow(`${esc(p.c)} this month`, `${fmt(p.overMonth)} over`, 'bad') : '')).join('') + (fp.short ? prow(`Doesn't cover all ${fp.pots.length}`, `${fmt(fp.total)} a week`, 'warn') : '') + `</div>` : '';
     const tw = topUpWarn(f); // a top-up from the offset coming up (family budget)
     const of = offsetForecast(f), ofShort = of && of.short && daysBetween(f.today, of.short.date) <= 14; // and what's left to draw in the offset
     const ofTip = of ? `<br>${esc(of.name)}: ${fmt2(of.now)} available to draw now.` + (of.short ? ` <b>About ${fmt(of.short.amount)} short on ${dayLabel(of.short.date)}</b>, when ${esc(nameList(of.short.what))} come${of.short.what.length === 1 ? 's' : ''} out.` : ` Lowest about ${fmt(of.low.avail)} around ${shortDay(of.low.date)}.`) : '';
@@ -2807,18 +2831,18 @@ function renderOverview() {
                 + (to.length ? ` Spend it and that's ${fmt(to.reduce((s, p) => s + p.amount, 0))} less going to your goals next week; leave it and it's offered to them.` : ''),
             'budgets'); })() : '')
       + (nx ? tile('Next money in', fmt(nxIn), `${dayLabel(nx.date)} · in ${nd} day${nd === 1 ? '' : 's'}`
-          + (nxFx > 0.5 ? `<br><b style="color:var(--text-primary)">${fmt(nxIn - nxFx)}</b> after fixed costs` : ''), '',
+          + (nxFx > 0.5 ? `<div class="prows">${prow('After fixed costs', fmt(nxIn - nxFx))}</div>` : ''), '',
         nxList.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join('<br>')
           + (nxFx > 0.5 ? `<br>Less fixed costs before ${nx2 ? 'the pay after' : 'two weeks on'} (${shortDay(until)}): ` + nxFixed.map(e => `${esc(e.name)} ${fmt2(-e.amount)} on ${shortDay(e.date)}`).join(', ')
             + `<br>Left for everything else: ${fmt2(nxIn - nxFx)}` : '')) : '')
       + (tw && tw.level // a top-up from the offset within 2 weeks: orange from a week out, red the day before
         ? tile('Top-up needed', fmt(tw.amount), `from the offset by ${dayLabel(tw.date)} · ${tw.days ? `in ${tw.days} day${tw.days === 1 ? '' : 's'}` : 'today'}`
-            + (ofShort ? `<br><b style="color:var(--bad)">Offset ${fmt(of.short.amount)} short ${shortDay(of.short.date)}</b>` : ''), ofShort ? 'bad' : tw.level === 'note' ? '' : tw.level,
+            + (ofShort ? `<div class="prows">${prow('Offset short ' + shortDay(of.short.date), fmt(of.short.amount), 'bad')}</div>` : ''), ofShort ? 'bad' : tw.level === 'note' ? '' : tw.level,
           `Without it, your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.<br>This is just enough to stay above ${fmt(f.floor)} until the next money in, rounded up to $50.`
           + (f.topups.length > 1 ? '<br>Later: ' + f.topups.slice(1).map(t => `${fmt(t.amount)} by ${shortDay(t.date)}`).join(', ') : '')
           + (f.fromOffset.outside > 0.005 ? `<br>The offset also pays ${fmt2(f.fromOffset.outside)} of bills in the next 6 weeks (like the rates).` : '') + ofTip)
         : tile('Lowest balance coming up', fmt(f.low.bal), `around ${dayLabel(f.low.date)}` + (f.topups.length ? ` · includes a ${fmt(f.topups[0].amount)} top-up from the offset by ${shortDay(f.topups[0].date)}` : '')
-            + (ofShort ? `<br><b style="color:var(--bad)">Offset ${fmt(of.short.amount)} short ${shortDay(of.short.date)}</b>` : ''), f.low.bal < 0 || ofShort ? 'bad' : f.low.bal < Math.max(100, f.typical) && !f.topups.length ? 'warn' : '',
+            + (ofShort ? `<div class="prows">${prow('Offset short ' + shortDay(of.short.date), fmt(of.short.amount), 'bad')}</div>` : ''), f.low.bal < 0 || ofShort ? 'bad' : f.low.bal < Math.max(100, f.typical) && !f.topups.length ? 'warn' : '',
         `Your account's expected lowest point in the next 6 weeks${f.low.bal < 0 ? ' (overdrawn)' : ''}, counting bills, regular money in${fcEveryday ? ' and typical everyday spending' : ''}.`
         + (f.topups.length ? `<br>That counts a top-up from the offset of ${fmt(f.topups[0].amount)} by ${dayLabel(f.topups[0].date)}, because without it your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.` : '')
         + (() => { const on = f.events.filter(e => e.date === f.low.date && !e.outside); return on.length ? `<br>That day: ${on.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join(', ')}.` : `<br>Nothing is due that day: it's the low point after the bills and everyday spending before it.`; })() + ofTip
@@ -2858,6 +2882,7 @@ function renderOverview() {
         <dt>Offset and top-up</dt><dd>The offset is the home loan you draw on. A top-up is money moved from it into the Joint account when the balance would run low.</dd>
         <dt>Reconcile</dt><dd>Tell the app what the bank says your balance is, so any difference is shown and fixed.</dd>
         <dt>Net worth</dt><dd>Everything you own minus everything you owe.</dd></dl></div>`,
+    help: () => cardOf.checks() + cardOf.words(),
     checks: () => `<div class="card" id="checksCard"><h2>Check the numbers</h2><p class="muted" style="margin-top:0">Six checks that the app's totals add up.</p>${checksHTML()}</div>`,
   };
   const viewHtml = ovView !== 'home' && cardOf[ovView] ? cardOf[ovView]() : '';
@@ -2865,25 +2890,25 @@ function renderOverview() {
   else {
     ovView = 'home';
     const ot = (v, label, value, sub, tone = 'teal') => viewTile('data-ovview', v, label, value, sub, tone);
-    const owed = f ? allBills().filter(x => x.payBack && !x.done) : [];
+    const owed = f ? allBills().filter(x => x.payBack && !x.done) : [], wa0 = f ? weekAllowance() : null;
     const btns = [
       ot('goals', 'Savings goals', String(goalList().length), goalList().length === 1 ? 'goal' : 'goals', 'leaf'),
       payCard ? ot('payback', 'Paying back', owed.length ? fmt(owed.reduce((s, x) => s + (x.payBack.left || 0), 0)) : 'Done', owed.length ? 'still to pay' : 'recently paid off', 'leaf') : '',
       poCards().length ? ot('cardpay', 'Card pay-off', fmt(poCards().reduce((t, a) => t + Math.max(0, -(acctBalance(a.id, dataEnd()) || 0)), 0)), 'still owed', 'leaf') : '',
-      ot('pace', 'Spending pace', fmt(b.habit), esc(pd.verdict || 'this month'), pd.diff > 0 && pd.verdict !== 'about usual' ? 'warn' : 'sky'),
+      wa0 ? '' : ot('pace', 'Spending pace', fmt(b.habit), esc(pd.verdict || 'this month'), pd.diff > 0 && pd.verdict !== 'about usual' ? 'warn' : 'sky'), // with a weekly allowance, the "Left to spend" tile opens this
       ot('where', 'Where it went', fmt(b.habit), 'by category', 'sky'),
       ot('trends', 'Trends', '12 months', 'by category', 'teal'),
       ot('payees', 'Top payees', top.length ? fmt(top[0][1]) : '—', top.length ? esc(top[0][0]) : 'none yet', 'leaf'),
-      ot('checks', 'Check the numbers', '6 checks', 'that the totals add up', 'teal'),
-      ot('words', 'What these words mean', '?', 'a short guide', 'sky'),
+      ot('help', 'Checks & words', '6 checks', 'plus what the words mean', 'sky'),
     ].join('');
     el.innerHTML = `
-    <div class="tiles">${tiles}</div>
+    <div class="tilebar"><button type="button" class="btn sm${tileEdit ? ' primary' : ''}" id="tileArr" title="Drag the tiles, or use the arrows, to put them where you want">${tileEdit ? 'Done' : 'Rearrange tiles'}</button>${tileEdit && localStorage.getItem(PK + 'tileOrder') ? '<button type="button" class="linkbtn" id="tileReset">Reset order</button>' : ''}</div>
+    <div class="tiles${tileEdit ? ' editing' : ''}" id="ovTiles">${tiles}${btns}</div>
     ${f && m === thisMonth() && +todayStr().slice(8) <= 7 && cache.byMonth[addMonths(m, -1)] ? `<p class="muted" style="margin:0 0 8px;font-size:13px"><button type="button" class="linkbtn" data-reviewmonth="${addMonths(m, -1)}">See how ${monthLabel(addMonths(m, -1))} went →</button></p>` : ''}
-    ${cardOf.plain()}${oddCard}${soonCard}
-    <div class="tiles biltiles" style="margin-top:12px">${btns}</div>`;
+    ${cardOf.plain()}${oddCard}${soonCard}`;
   }
   if (ovView === 'trends') drawTrend();
+  if (ovView === 'home') setupTiles();
   const wb = $('#wkBuf'); // the buffer box: the least to keep in the account
   if (wb) wb.onchange = () => { const v = parseFloat(String(wb.value).replace(/[$,\s]/g, '')); plan.allowance = {...(plan.allowance || {}), buffer: v >= 0 ? round2(v) : 200}; savePlan(); renderOverview(); toast(`The weekly allowance now keeps at least ${fmt(plan.allowance.buffer)} in the account`); };
   const wk = $('#wkLim'); // the cap box on the Spending pace card
@@ -3827,6 +3852,51 @@ document.addEventListener('input', e => { // the what-if box: update the sentenc
   const i = e.target.closest && e.target.closest('.poExtra'); if (!i) return;
   poExtra = Math.max(0, parseFloat(i.value) || 0); renderOverview(); const n = document.querySelector('.poExtra'); if (n) { n.focus(); try { n.setSelectionRange(n.value.length, n.value.length); } catch (e2) {} }
 });
+// ---------- Overview tiles you can rearrange ----------
+// Each tile is named by its view or its label. The order is kept in this browser (not synced to other devices).
+let tileEdit = false;
+const tileKey = t => t.dataset.ovview || (t.querySelector('.label') ? t.querySelector('.label').childNodes[0].textContent.trim() : '');
+function saveTileOrder() {
+  const box = $('#ovTiles'); if (!box) return;
+  try { localStorage.setItem(PK + 'tileOrder', JSON.stringify([...box.children].map(tileKey))); } catch (e) { storageFull(e); }
+}
+function setupTiles() {
+  const box = $('#ovTiles'); if (!box) return;
+  let saved = []; try { saved = JSON.parse(localStorage.getItem(PK + 'tileOrder') || '[]'); } catch (e) { saved = []; }
+  const kids = [...box.children], pos = k => { const i = saved.indexOf(k); return i < 0 ? 1e6 : i; };
+  kids.map((t, i) => [t, i]).sort((a, b) => pos(tileKey(a[0])) - pos(tileKey(b[0])) || a[1] - b[1]).forEach(([t]) => box.appendChild(t)); // new tiles go to the end
+  if (!tileEdit) return;
+  for (const t of box.children) {
+    t.draggable = true;
+    t.insertAdjacentHTML('beforeend', '<span class="tmove"><span data-tmove="-1" role="button" title="Move earlier">◀</span><span class="tgrip" title="Drag me">⠿</span><span data-tmove="1" role="button" title="Move later">▶</span></span>');
+  }
+}
+{
+  let dragEl = null;
+  const box = () => $('#ovTiles');
+  document.addEventListener('click', e => {
+    const b = box(); if (!b) return;
+    if (e.target.closest('#tileArr')) { tileEdit = !tileEdit; renderOverview(); return; }
+    if (e.target.closest('#tileReset')) { localStorage.removeItem(PK + 'tileOrder'); renderOverview(); return; }
+    if (!tileEdit) return;
+    const t = e.target.closest('#ovTiles > *'); if (!t) return;
+    e.stopPropagation(); e.preventDefault(); // while rearranging, tiles don't open
+    const mv = e.target.closest('[data-tmove]'); if (!mv) return;
+    const other = +mv.dataset.tmove < 0 ? t.previousElementSibling : t.nextElementSibling;
+    if (other) { +mv.dataset.tmove < 0 ? b.insertBefore(t, other) : b.insertBefore(other, t); saveTileOrder(); }
+  }, true);
+  document.addEventListener('dragstart', e => { const t = tileEdit && e.target.closest && e.target.closest('#ovTiles > *'); if (!t) return; dragEl = t; t.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', tileKey(t)); });
+  document.addEventListener('dragover', e => { if (dragEl && e.target.closest('#ovTiles')) e.preventDefault(); });
+  document.addEventListener('drop', e => {
+    const t = dragEl && e.target.closest('#ovTiles > *'); if (!t || t === dragEl) return;
+    e.preventDefault();
+    const b = box(), kids = [...b.children];
+    b.insertBefore(dragEl, kids.indexOf(dragEl) < kids.indexOf(t) ? t.nextSibling : t); saveTileOrder();
+  });
+  document.addEventListener('dragend', () => { if (dragEl) dragEl.classList.remove('dragging'); dragEl = null; });
+}
+// One pill row for a tile: label on the left, amount on the right. Wrap a few in <div class="prows">. tone: '', 'good', 'warn' or 'bad'
+function prow(label, value, tone = '') { return `<span class="prow${tone ? ' ' + tone : ''}"><span>${label}</span><span>${value}</span></span>`; }
 function bankBalHTML() {
   const d = dataEnd(), bal = round2(calcBalance(d) + carryOwed(d)), many = accounts.length > 1;
   const lines = many ? accounts.map(a => a.carry ? `<span class="accsplit muted" title="You're paying this card off over time, so it isn't taken off the balance."><span>${esc(a.name)} owed</span><span>${fmt2(Math.max(0, -(acctBalance(a.id, d) || 0)))}</span></span>` : `<span class="accsplit"><span>${esc(/^account\b/i.test(a.name) ? 'Bank account' : a.name)}</span><span>${fmt2(acctBalance(a.id, d))}</span></span>`).join('') : '';
@@ -4092,11 +4162,11 @@ function renderBudgets() {
   el.innerHTML = `
     <div class="card rta ${st[0]} tone-${{todo: 'warn', over: 'bad'}[st[0]] || 'good'}">
       <div class="rta-head">
-        <div class="rta-status"><span class="pillst">${st[1]} ${st[2]}</span>${under > 0.005 ? `<span class="muted">Targets still need ${fmt2(under)} this month.</span>` : ''}</div>
         <div class="rta-actions">${FP && row.rta > 0.005 ? `<button class="btn primary" id="rtaAuto" title="Bills first, then essentials, then what's left over. You can untick or change anything before it is assigned.">Assign my pay</button>` : ''}<button class="btn" id="rtaRec">Reconcile</button><button class="btn" id="rtaMove">Move money</button><button class="btn" id="newCatBtn">+ New category</button><button class="btn" id="catsBtn">Edit categories…</button><button class="btn" id="rtaDetail" title="Show or hide the extra columns (progress, to go, plan, when)">${budgetLite() ? 'More detail' : 'Less detail'}</button></div>
       </div>
       <div class="rta-stats">
-        <div class="stat main"><div class="slabel">Ready to Assign · ${monthLabel(m)}${infoBtn("Money you have that has not been given a job yet. Aim for $0: give every dollar to a bill, a spending category or a goal.")}</div><div class="amt">${fmt2(row.rta)}</div></div>
+        <div class="stat main"><div class="slabel">Ready to Assign · ${monthLabel(m)}${infoBtn("Money you have that has not been given a job yet. Aim for $0: give every dollar to a bill, a spending category or a goal.")}</div><div class="amt">${fmt2(row.rta)}</div>
+          <div class="statpills"><span class="pillst">${st[1]} ${row.rta > 0.005 ? 'Still needs a job' : row.rta < -0.005 ? 'Assigned too much' : st[2]}</span>${under > 0.005 ? `<span class="pillst neutral"><span>Targets need</span><span>${fmt2(under)}</span></span>` : ''}</div></div>
         ${bankBalHTML()}
       </div>
       ${cardLineHTML()}${overLine}${row.rta < -0.005 ? `<div class="callout over"><span class="ctext"><b>✕ You've given out ${fmt2(-row.rta)} more than you have.</b> Take some back from a category (Move money), or it comes out of your next pay.</span></div>` : ''}${payWaitHTML(m)}
