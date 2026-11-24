@@ -2762,7 +2762,7 @@ function plainHTML(m, P, f, pd, b) {
   const today = f.today;
   // What the tiles mean, in words. The numbers themselves are on the tiles, so this says what they add up to and what to do.
   // Right now
-  const cpS = row ? cardPot(row, m) : null, rtaS = row ? (cpS ? round2(row.rta + cpS.unfunded) : row.rta) : 0; // a card paid over time: its unfunded debt is said apart
+  const cpS = row ? cardPot(row, m) : null, rtaS = row ? (cpS ? round2(row.rta + cpS.back) : row.rta) : 0; // a card paid over time: its unfunded debt is said apart
   let s = !row ? `You have <b>${fmt2(f.start)}</b> in the account.`
     : rtaS > 0.005 ? `<b>${fmt2(rtaS)}</b> in the account hasn't been given a job yet. Assign it on the Budget tab.`
     : rtaS < -0.005 ? `<span style="color:var(--bad)">You've assigned ${fmt2(-rtaS)} more than you have.</span> Take some back from a category on the Budget tab.`
@@ -2898,7 +2898,7 @@ function renderOverview() {
   const TILE_GO = {'Left to spend this week': 'ovview:pace', 'Balance': 'reconcile', 'Ready to Assign': 'budgets', 'Spent so far this month': 'tx:out', 'Spending': 'tx:out', 'Money in': 'tx:in', 'Left over': 'budgets', 'Lowest balance coming up': 'billview:fc', 'Top-up needed': 'billview:fc', 'Fun money this week': 'budgets'};
   const NEUTRAL = {'Left to spend this week': 'teal', 'Balance': 'teal', 'Ready to Assign': 'sky', 'Spent so far this month': 'leaf', 'Spending': 'sky', 'Money in': 'leaf', 'Left over': 'sky', 'Next money in': 'leaf', 'Lowest balance coming up': 'teal'}; // tiles with no good/warn/bad status still get a colour
   const tile = (label, value, sub, color, tip, go = label === 'Next money in' ? nxGo : TILE_GO[label]) => `<div class="tile tone-${/^(good|warn|bad)$/.test(color) ? color : NEUTRAL[label] || 'teal'}"${tip ? ` data-tip="${esc(tip)}"` : ''}${go ? ` data-go="${esc(go)}" tabindex="0" role="button"` : ''}><div class="label">${label}${tip ? infoBtn(tip) : ''}</div><div class="value"${color ? ` style="color:var(--${color})"` : ''}>${value}</div><div class="sub">${sub}</div></div>`;
-  const cpT = P ? cardPot(P.by[m], m) : null, rtaT = P ? (cpT ? round2(P.by[m].rta + cpT.unfunded) : P.by[m].rta) : 0;
+  const cpT = P ? cardPot(P.by[m], m) : null, rtaT = P ? (cpT ? round2(P.by[m].rta + cpT.back) : P.by[m].rta) : 0;
   const rtaTile = P ? tile('Ready to Assign', fmt2(rtaT), rtaT < -0.005 ? 'assigned more than you have' : cpT && cpT.unfunded > 0.005 ? `card debt not yet funded ${fmt2(cpT.unfunded)}` : 'not given a job yet', rtaT < -0.005 ? 'bad' : cpT && cpT.unfunded > 0.005 ? 'warn' : '', 'Money in your budget that hasn\'t been given a job yet. Give it one on the Budget tab.' + (cpT ? ' A card you\'re paying off over time is kept apart: what isn\'t covered yet shows as "card debt not yet funded".' : '')) : '';
   let tiles;
   if (f) {
@@ -3816,7 +3816,7 @@ function cardLineHTML() { // a credit card account: what's owed on it, and wheth
     const sg = carried.map(a => a.payoff ? poState(a) : null).find(s => s && !s.err && s.payNow > 0.005), cat = KIND['Credit Card'] ? 'Credit Card' : '';
     const have = cat ? ((plan.assigned[mm] || {})[cat] || 0) : 0, need = sg ? round2(sg.payNow - have) : 0;
     const alloc = sg && cat ? (need > 0.005 ? `<button type="button" class="btn sm primary" data-allocpay="${round2(need)}" data-alloccat="${esc(cat)}" title="Put the pay-off plan's ${fmt2(sg.payNow)} into the ${esc(cat)} category for this month.">Allocate ${fmt2(need)}</button>` : `<span class="muted">${fmt2(sg.payNow)} allocated ✓</span>`) : '';
-    const stats = `<span>Owed <b>${fmt2(owed)}</b></span>${cp ? `<span>Set aside <b>${fmt2(cp.pot)}</b></span>${cp.unfunded > 0.005 ? `<span>Not covered yet <b>${fmt2(cp.unfunded)}</b></span>` : ''}` : ''}`;
+    const stats = `<span>Owed <b>${fmt2(owed)}</b></span>${cp ? `<span>Set aside <b>${fmt2(cp.pot)}</b></span>${cp.short > 0.005 ? `<span>Not covered yet <b>${fmt2(cp.short)}</b></span>` : ''}` : ''}`;
     const note = planned ? `A card is for covering over time. Your pay-off plan is a suggestion: pay more or less when you need to.` : `<b>No repayment is planned yet.</b> Set up a pay-off plan, or add a bill that pays the card back.`;
     return `<div class="callout${planned ? '' : ' over'}"><div class="ctext"><div class="cstats"><b>Credit card</b>${stats}</div><div class="muted cnote">${note}</div></div><div class="cctl">${alloc}${pay}</div><div class="cctl csub">${switches}${poBtns}</div></div>`;
   }
@@ -3829,8 +3829,8 @@ function cardLineHTML() { // a credit card account: what's owed on it, and wheth
 function cardPot(row, m) {
   const owed = carryOwed();
   if (!row || m !== thisMonth() || owed < 0.005) return null;
-  const unfunded = row.rta < -0.005 ? Math.min(owed, round2(-row.rta)) : 0;
-  return {owed, unfunded, pot: round2(owed - unfunded)};
+  const pot = KIND['Credit Card'] ? Math.min(owed, Math.max(0, round2(row.available['Credit Card'] || 0))) : 0; // what you've put in the card's own category
+  return {owed, back: round2(owed + (row.cardPaid || 0)), unfunded: 0, pot, short: round2(owed - pot)}; // back: Ready to Assign doesn't lose the card debt, only the money you assign to the card
 }
 document.addEventListener('click', e => { // "Allocate": put the pay-off plan's amount into the card category for this month
   const b = e.target.closest && e.target.closest('[data-allocpay]'); if (!b) return;
@@ -4310,7 +4310,7 @@ function renderBudgets() {
     + (emptyCats.length ? `<tr class="emptyrow"><td colspan="8"><button type="button" class="linkbtn" data-empty title="Categories with nothing assigned, spent or available, and no target or bill">${showEmpty ? `Hide the ${emptyCats.length} empty categories` : `Show ${emptyCats.length} empty ${emptyCats.length === 1 ? 'category' : 'categories'}`}</button></td></tr>` : '')
     + (P.hiddenCats.length ? `<tr class="emptyrow"><td colspan="8"><button type="button" class="linkbtn" data-hiddenlist title="Categories you've hidden. Open the list to show one again.">${P.hiddenCats.length} hidden ${P.hiddenCats.length === 1 ? 'category' : 'categories'}: manage</button></td></tr>` : '');
 
-  const cp = cardPot(row, m), rtaShow = cp ? round2(row.rta + cp.unfunded) : row.rta; // a card paid over time: its unfunded debt is shown beside, not as an error
+  const cp = cardPot(row, m), rtaShow = cp ? round2(row.rta + cp.back) : row.rta; // a card paid over time: its unfunded debt is shown beside, not as an error
   const st = rtaShow > 0.005 ? ['todo', '!', `${fmt2(rtaShow)} still needs a job. Assign it to categories below.`]
     : rtaShow < -0.005 ? ['over', '✕', `You've assigned ${fmt2(-rtaShow)} more than you have. Take some back from a category.`]
     : ['ok', '✓', 'Every dollar has a job.'];

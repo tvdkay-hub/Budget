@@ -248,11 +248,19 @@ function computePlanRaw(endMonth) {
   for (let m = plan.start; m <= last; m = addMonths(m, 1)) months.push(m);
   // Income, and money transferred in, goes to Ready to Assign. Everything else is activity in its category.
   // Transactions on or before the cut-off date are already part of the starting balance, so they don't count.
-  const inflow = Object.fromEntries(months.map(m => [m, 0])), adj = {...inflow}, act = {}, history = {};
+  const inflow = Object.fromEntries(months.map(m => [m, 0])), adj = {...inflow}, act = {}, history = {}, cardPaidIn = {};
   for (const t of txns) {
     // Money moved between your accounts doesn't count, unless the other side is before the budget started (that one's in the starting balance)
     const pair = internal.get(t.id);
-    if (pair && (pair.date > plan.cutoff) === (t.date > plan.cutoff)) continue;
+    if (pair && (pair.date > plan.cutoff) === (t.date > plan.cutoff)) {
+      // A payment to a card you're paying off over time comes out of the card's own category (it can go negative: cover it from elsewhere)
+      const to = accounts.find(x => x.id === acctOf(pair));
+      if (t.amount < 0 && t.date > plan.cutoff && to && to.carry && KIND['Credit Card']) {
+        const m = t.date.slice(0, 7), a = act[m] = act[m] || {};
+        a['Credit Card'] = (a['Credit Card'] || 0) + t.amount; cardPaidIn[m] = (cardPaidIn[m] || 0) - t.amount;
+      }
+      continue;
+    }
     for (const p of partsOf(t)) {
       const m = t.date.slice(0, 7), k = KIND[p.cat], isIn = k === 'income' || (k === 'transfer' && p.amount > 0 && !heldIn(t, p.cat));
       if (!isIn) { const h = history[m] = history[m] || {}; h[p.cat] = (h[p.cat] || 0) + p.amount; }
@@ -263,8 +271,9 @@ function computePlanRaw(endMonth) {
   }
   for (const x of plan.adjust) { const m = x.date.slice(0, 7); if (x.date > plan.cutoff && m in adj) adj[m] += x.amount; } // reconciliation adjustments
   const P = {months, budgetCats, by: {}, spent: (m, c) => -((history[m] || {})[c] || 0)};
-  let prev = null, cash = plan.opening, totalAsg = 0;
+  let prev = null, cash = plan.opening, totalAsg = 0, cardPaid = 0;
   for (const m of months) {
+    cardPaid += cardPaidIn[m] || 0;
     const asg = plan.assigned[m] || {}, a = act[m] || {};
     const r = {carry: {}, assigned: {}, activity: {}, available: {}, inflow: inflow[m], adj: adj[m], over: 0, assignedTotal: 0, carryTotal: 0, activityTotal: 0};
     for (const c of budgetCats) {
@@ -273,6 +282,7 @@ function computePlanRaw(endMonth) {
       r.carryTotal += carry; r.assignedTotal += asgC; r.activityTotal += actC;
       if (av < 0) r.over += av;
     }
+    r.cardPaid = round2(cardPaid); // paid to carried cards so far: they came out of the card's category, so Ready to Assign keeps them
     cash += r.inflow + r.adj + r.activityTotal; r.cash = cash;
     totalAsg += r.assignedTotal;
     P.by[m] = r; prev = r;
