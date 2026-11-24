@@ -255,7 +255,7 @@ function computePlanRaw(endMonth) {
     if (pair && (pair.date > plan.cutoff) === (t.date > plan.cutoff)) {
       // A payment to a card you're paying off over time comes out of the card's own category (it can go negative: cover it from elsewhere)
       const to = accounts.find(x => x.id === acctOf(pair));
-      if (t.amount < 0 && t.date > plan.cutoff && to && to.carry && KIND['Credit Card']) {
+      if (t.amount < 0 && t.date > plan.cutoff && to && to.carry && t.date >= (to.carrySince || '9999') && KIND['Credit Card']) {
         const m = t.date.slice(0, 7), a = act[m] = act[m] || {};
         a['Credit Card'] = (a['Credit Card'] || 0) + t.amount; cardPaidIn[m] = (cardPaidIn[m] || 0) - t.amount;
       }

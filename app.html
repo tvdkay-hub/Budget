@@ -1184,7 +1184,8 @@ let tagColors = store.get('tagColors', {}); // tag -> colour number (TAG_COLORS)
 let share = FAMILY ? store.get('share', null) : null, shareTimer = null, shareBusy = Promise.resolve(), shareAt = null, shareErr = '';
 let deletedTx = store.get('deletedTx', {}); // transactions you deleted (like a bank's double-up), by id: kept so they can be brought back, and so loading the same file again doesn't add them back
 let worth = Object.assign({accounts: [], entries: []}, store.get('worth', {})); // net worth: [{id, name, owe, closed}] and [{date, values: {id: amount}}]
-let accounts = store.get('accounts', []);     // bank accounts your transactions come from: [{id, name, num}]. The first one's id is ''
+let accounts = store.get('accounts', []);
+for (const a of accounts) if (a.carry && !a.carrySince) a.carrySince = todayStr(); // payments count from the day it was ticked     // bank accounts your transactions come from: [{id, name, num}]. The first one's id is ''
 let budgets = store.get('budgets', {});       // category -> monthly amount
 const emptyPlan = () => ({start: null, cutoff: null, opening: 0, assigned: {}, targets: {}, custom: [], removed: [], merged: {}, adjust: [], lastRec: null, priority: {}, hidden: []});
 let plan = Object.assign(emptyPlan(), store.get('plan', {})); // zero-based budget: start month, opening balance, assigned money, targets, your own categories
@@ -3849,7 +3850,7 @@ document.addEventListener('click', e => { // "Pay card": a transfer from your ba
 document.addEventListener('change', e => { // the "paying this card off over time" switch
   const c = e.target.closest && e.target.closest('[data-carry]'); if (!c) return;
   const a = accounts.find(x => x.id === c.dataset.carry); if (!a) return;
-  if (c.checked) a.carry = true; else delete a.carry;
+  if (c.checked) { a.carry = true; a.carrySince = todayStr(); } else { delete a.carry; delete a.carrySince; }
   store.set('accounts', accounts); refresh();
 });
 // ---------- Credit card pay-off plan (account.payoff) ----------
@@ -3987,7 +3988,7 @@ $('#poDlg').addEventListener('close', () => {
     const cfg = poFromBox(), s = poState(a, 0, cfg); if (s.err || s.sim.never) return;
     const old = a.payoff || {};
     a.payoff = {...cfg, startBal: old.startBal && old.startDate ? old.startBal : s.owed, startDate: old.startDate || s.today, endAt: s.sim.end};
-    a.carry = true; // paying over time: what's owed isn't taken off your money, the repayments are
+    a.carry = true; if (!a.carrySince) a.carrySince = todayStr(); // paying over time: what's owed isn't taken off your money, the repayments are
     if (s.owed > 0.005) poSyncBill(a, s);
   } else return;
   store.set('accounts', accounts); refresh();
