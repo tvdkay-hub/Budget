@@ -2759,10 +2759,12 @@ function plainHTML(m, P, f, pd, b) {
   const today = f.today;
   // What the tiles mean, in words. The numbers themselves are on the tiles, so this says what they add up to and what to do.
   // Right now
+  const cpS = row ? cardPot(row, m) : null, rtaS = row ? (cpS ? round2(row.rta + cpS.unfunded) : row.rta) : 0; // a card paid over time: its unfunded debt is said apart
   let s = !row ? `You have <b>${fmt2(f.start)}</b> in the account.`
-    : row.rta > 0.005 ? `<b>${fmt2(row.rta)}</b> in the account hasn't been given a job yet. Assign it on the Budget tab.`
-    : row.rta < -0.005 ? `<span style="color:var(--bad)">You've assigned ${fmt2(-row.rta)} more than you have.</span> Take some back from a category on the Budget tab.`
+    : rtaS > 0.005 ? `<b>${fmt2(rtaS)}</b> in the account hasn't been given a job yet. Assign it on the Budget tab.`
+    : rtaS < -0.005 ? `<span style="color:var(--bad)">You've assigned ${fmt2(-rtaS)} more than you have.</span> Take some back from a category on the Budget tab.`
     : 'Every dollar in the account has a job in your budget.';
+  if (cpS && cpS.unfunded > 0.005) s += ` Your card is ${fmt2(cpS.unfunded)} more than the money you've set aside for it. That's what a card is for: cover it over time.`;
   li.push(['Right now', s]);
   // This month so far
   const fxNow = b.fixed || 0;
