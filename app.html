@@ -571,15 +571,6 @@ body.printing #report .btn.primary { background: #2a78d6; color: #fff; }
 .cstat { white-space: nowrap; }
 .dlghead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .dlghead h2 { margin: 0; font-size: 16px; flex: 1; text-align: center; }
-/* From screenshots: one row per transaction read, each one editable */
-#shotDlg { width: min(560px, 96vw); }
-.shotrow { display: grid; grid-template-columns: auto 1fr 7.5em; gap: 4px 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--grid); }
-.shotrow input[type=checkbox] { width: 22px; height: 22px; margin: 0; grid-row: span 2; }
-.shotrow .sp { min-width: 0; width: 100%; box-sizing: border-box; }
-.shotrow .sa { width: 100%; box-sizing: border-box; text-align: right; }
-.shotrow .sd { grid-column: 2 / 4; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.shotrow .sd .muted { font-size: 12px; }
-.shotrow.off .sp, .shotrow.off .sa, .shotrow.off .sd input { opacity: .5; }
 /* ---- Phones (narrow screens): tabs along the bottom, everything fits the width, bigger buttons ---- */
 @media (max-width: 700px) {
   body { padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
@@ -665,8 +656,6 @@ body.printing #report .btn.primary { background: #2a78d6; color: #fff; }
   #addTxDlg { width: 100vw; max-width: none; box-sizing: border-box; inset: 0 0 auto 0; margin: 0; border-radius: 0 0 16px 16px; max-height: 100dvh; overflow-y: auto; padding: 10px 12px 14px; }
   #addTxDlg .dlghead .btn { padding: 8px 14px; font-size: 16px; }
   #addTxDlg label { font-size: 13px; }
-  #shotDlg { width: 100vw; max-width: none; box-sizing: border-box; inset: 0 0 auto 0; margin: 0; border-radius: 0 0 16px 16px; max-height: 100dvh; overflow-y: auto; padding: 10px 12px 14px; }
-  #shotDlg .dlghead .btn { padding: 8px 14px; font-size: 16px; }
   /* Safari zooms into any box under 16px: keep them at 16 so the page never jumps */
   main input:not([type=checkbox]):not([type=radio]), main select, main textarea, dialog input:not([type=checkbox]):not([type=radio]), dialog select, dialog textarea, header select { font-size: 16px !important; }
   html, body { overflow-x: clip; max-width: 100%; }
@@ -1025,15 +1014,6 @@ main th.sort-desc::after { content: ' ▼'; font-size: .75em; }
     </div>
   </form>
 </dialog>
-<dialog id="shotDlg">
-  <form method="dialog">
-    <div class="dlghead"><button class="btn" value="cancel" formnovalidate>Cancel</button><h2>From screenshots</h2><button class="btn primary" value="ok" id="shotAdd" disabled>Add</button></div>
-    <p id="shotMsg" class="muted" style="margin:0 0 8px"></p>
-    <label id="shotAcctWrap" hidden style="margin-bottom:8px">Account <select id="shotAcct" style="width:100%"></select></label>
-    <div id="shotList"></div>
-    <p class="muted" style="font-size:12px;margin:10px 0 0">Read on this device: your screenshots aren't sent anywhere. Check each one against the screenshot before adding (money out has a minus). They're added like ones you type in, and the bank's copies replace them when you next load a CSV, keeping your categories and notes.</p>
-  </form>
-</dialog>
 <div id="tagMenu" class="menu hidden"></div>
 <dialog id="tagsDlg" style="width:min(600px,94vw)">
   <form method="dialog">
@@ -1312,8 +1292,7 @@ function csvTxns(text, acct = '') {
 // A transaction's id without the "#0" on the end. Transactions from your first account have no account in it,
 // so ids made before there were accounts still match (and keep their notes, flags and splits).
 // The same payee, the way the bank writes it on different days: "NEW WORLD NORTHWOOD" / "New World Northwo 10", "FRM 0905-…" / "From 0905-…"
-// The day number Westpac adds on the end ("Crisp 23") is dropped, so a short name still matches its other copy ("Crisp")
-const payeeCore = t => (t.party || '').toLowerCase().replace(/^frm\b/, 'from').replace(/\s+\d{1,2}$/, '').replace(/[^a-z0-9]/g, '');
+const payeeCore = t => (t.party || '').toLowerCase().replace(/^frm\b/, 'from').replace(/[^a-z0-9]/g, '');
 const samePayee = (a, b) => { const x = payeeCore(a), y = payeeCore(b); return x.length < 8 || y.length < 8 ? x === y : x.slice(0, 8) === y.slice(0, 8); };
 const keyOf = t => (t.acct ? t.acct + '|' : '') + [t.date, t.amount.toFixed(2), t.party, t.desc, t.ref, t.part, t.code].join('|');
 
@@ -1357,11 +1336,8 @@ function importFiles(fileTexts, info = {}, accts = [], fresh = new Set()) {
       const lo = list.reduce((a, t) => t.date < a ? t.date : a, list[0].date), hi = list.reduce((a, t) => t.date > a ? t.date : a, list[0].date);
       const stale = [], mates = [];
       let inRange = 0;
-      // Westpac's newest rows are provisional (a reference like "23/11 15:39", dated the next business day). When they settle they can move
-      // back to the day of the purchase, so a provisional row up to 4 days after this file's last day is still one this file may have replaced.
-      const provisional = t => /^\d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/.test(t.ref || '');
       for (const [k, c] of Object.entries(counts)) {
-        if ((c.t.acct || '') !== acct || c.t.date < lo || (c.t.date > hi && !(provisional(c.t) && c.t.date <= addDays(hi, 4)))) continue;
+        if ((c.t.acct || '') !== acct || c.t.date < lo || c.t.date > hi) continue;
         const had = []; for (let i = 0; i < c.n; i++) if (before.has(k + '#' + i)) had.push(k + '#' + i);
         inRange += had.length;
         for (let i = local[k]?.n || 0; i < had.length; i++) stale.push({id: had[i], k, t: before.get(had[i])}); // more than this file has
@@ -1391,21 +1367,12 @@ function importFiles(fileTexts, info = {}, accts = [], fresh = new Set()) {
   for (const [k, v] of Object.entries(counts)) for (let i = 0; i < v.n; i++) if (!deletedTx[k + '#' + i]) bank.push({...v.t, id: k + '#' + i});
   // Transactions you added by hand: the bank's copy replaces each one (same account and amount, from 3 days before to 10 days after),
   // and takes over your category, note, flag and tags
-  // First the same amount to the cent; then, for ones still left, a near amount (within 10%) from a payee that starts the same way:
-  // a pending card purchase in another currency often settles at a slightly different amount
-  const matched = new Set(), kept = [], pairs = new Map(), hands = hand.slice().sort((a, b) => a.date < b.date ? -1 : 1);
-  const start = s => (s || '').toLowerCase().replace(/^(?:to|from|frm)\s+/, '').replace(/[^a-z0-9]/g, '').slice(0, 5);
-  for (const pass of [0, 1]) for (const h of hands) {
-    if (pairs.has(h)) continue;
-    const near = t => pass === 0 ? Math.abs(t.amount - h.amount) < 0.005
-      : Math.sign(t.amount) === Math.sign(h.amount) && Math.abs(t.amount - h.amount) <= Math.abs(h.amount) * 0.1 && start(t.party).length >= 3 && start(t.party) === start(h.party);
-    const b = bank.filter(t => newIds.has(t.id) && !matched.has(t.id) && (t.acct || '') === (h.acct || '') && near(t)
+  const matched = new Set(), kept = [];
+  for (const h of hand.slice().sort((a, b) => a.date < b.date ? -1 : 1)) {
+    const b = bank.filter(t => newIds.has(t.id) && !matched.has(t.id) && (t.acct || '') === (h.acct || '') && Math.abs(t.amount - h.amount) < 0.005
       && t.date >= addDays(h.date, -3) && t.date <= addDays(h.date, 10)).sort((x, y) => Math.abs(daysBetween(h.date, x.date)) - Math.abs(daysBetween(h.date, y.date)))[0];
-    if (b) { matched.add(b.id); pairs.set(h, b); }
-  }
-  for (const h of hands) {
-    const b = pairs.get(h);
     if (!b) { kept.push(h); continue; }
+    matched.add(b.id);
     for (const map of [overrides, notes, flags, tags, splits]) if (map[h.id] !== undefined) { if (map[b.id] === undefined) map[b.id] = map[h.id]; delete map[h.id]; }
     delete unchecked[b.id]; delete unchecked[h.id]; // you've already sorted it
   }
@@ -1436,147 +1403,6 @@ function addHandTx({date, amount, payee, cat, note, acct, other}) {
   store.set('txns', txns);
   unusualCache = null; refresh();
   return t;
-}
-// Several transactions added by hand at once (from screenshots of the bank app), saved and redrawn once. The bank's copies replace them later.
-function addHandTxs(list) {
-  const added = [];
-  for (const {date, amount, payee, acct} of list) {
-    const t = {date, amount, party: payee, desc: '', ref: '', part: '', code: '', id: 'hand-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), manual: true};
-    if (acct) t.acct = acct;
-    txns.push(t); added.push(t);
-  }
-  txns.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
-  store.set('txns', txns);
-  unusualCache = null; refresh();
-  return added;
-}
-
-// ---------- Screenshots of the bank app's transaction list ----------
-// On a phone you can't download a CSV, so a screenshot of the list is read here, on this device: the text reader (Tesseract, in the
-// ocr folder next to this page) runs in the browser and nothing is sent anywhere. Its files (about 7 MB) download the first time only.
-const OCR_FILES = 'ocr/';
-async function ocrWorker(onProgress) {
-  if (location.protocol === 'file:') throw new Error("Reading screenshots works when the app is opened from the web (your phone or the online link), not from a file on this computer.");
-  const base = new URL(OCR_FILES, location.href).href;
-  if (!window.Tesseract) await new Promise((res, rej) => {
-    const s = document.createElement('script'); s.src = base + 'tesseract.min.js'; s.onload = res;
-    s.onerror = () => rej(new Error("Couldn't get the screenshot reader. Check you're online and try again (it's only needed the first time)."));
-    document.head.append(s);
-  });
-  // Phones from the last few years run the faster (SIMD) version; older ones get the plain one
-  const simd = WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
-  return Tesseract.createWorker('eng', 1, {workerPath: base + 'worker.min.js', corePath: base + (simd ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js'),
-    langPath: base.replace(/\/$/, ''), workerBlobURL: false, logger: m => onProgress && onProgress(m)});
-}
-// The screenshot in black on white, at least 1000 pixels wide, which is what the reader reads best. A dark-mode screenshot is turned the right way round.
-async function ocrImage(file) {
-  const img = await createImageBitmap(file), k = img.width < 1000 ? Math.min(3, 1000 / img.width) : 1;
-  const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-  const g = c.getContext('2d', {willReadFrequently: true}); g.drawImage(img, 0, 0, c.width, c.height); img.close && img.close();
-  const d = g.getImageData(0, 0, c.width, c.height), p = d.data;
-  let sum = 0;
-  for (let i = 0; i < p.length; i += 4) { const y = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]; p[i] = y; sum += y; }
-  const dark = sum / (p.length / 4) < 110;
-  for (let i = 0; i < p.length; i += 4) { const y = dark ? 255 - p[i] : p[i]; p[i] = p[i + 1] = p[i + 2] = y; }
-  g.putImageData(d, 0, 0);
-  return c;
-}
-// The lines of text the reader found, each with where it is on the screenshot
-async function ocrLines(worker, file) {
-  const c = await ocrImage(file), {data} = await worker.recognize(c, {}, {blocks: true, text: false});
-  const lines = [];
-  for (const b of data.blocks || []) for (const pa of b.paragraphs || []) for (const l of pa.lines || []) {
-    const words = (l.words || []).filter(w => w.text.trim());
-    if (!words.length) continue;
-    lines.push({text: words.map(w => w.text).join(' ').replace(/\s+/g, ' ').trim(), x0: l.bbox.x0, x1: l.bbox.x1, y0: l.bbox.y0, y1: l.bbox.y1, words: words.map(w => ({text: w.text, x0: w.bbox.x0, x1: w.bbox.x1}))});
-  }
-  return {lines, width: c.width};
-}
-const SHOT_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-// A heading in the list like "24 Nov 2026 Today", "22 Nov 2026 Sun", "Today", "Yesterday", "Saturday, 21 November", "Thu 19 Nov", "21/11/2026"
-// or "Pending": the date it stands for, or ''. The heading can have the day's balance after it ("Day end balance: $271.48"), which is ignored
-function shotDateHeading(s, today = todayStr()) {
-  s = s.toLowerCase().replace(/[^a-z0-9/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (/^(pending|processing|pending transactions)$/.test(s) || /^today\b/.test(s)) return today;
-  if (/^yesterday\b/.test(s)) return addDays(today, -1);
-  const fix = (y, m, d) => {
-    if (!(m >= 1 && m <= 12 && d >= 1 && d <= new Date(Date.UTC(y || 2000, m, 0)).getUTCDate())) return '';
-    const yr = y || +today.slice(0, 4);
-    let iso = `${yr}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    if (!y && iso > addDays(today, 1)) iso = `${yr - 1}` + iso.slice(4); // no year: the most recent one (December, seen in January, is last year)
-    return iso;
-  };
-  const day = '(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]* )?', mon = '(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*';
-  let m = new RegExp(`^${day}(\\d{1,2}) ${mon}(?: (\\d{4}))?(?: |$)`).exec(s);
-  if (m) return fix(+m[3] || 0, SHOT_MONTHS.indexOf(m[2]) + 1, +m[1]);
-  m = new RegExp(`^${day}${mon} (\\d{1,2})(?: (\\d{4}))?(?: |$)`).exec(s);
-  if (m) return fix(+m[3] || 0, SHOT_MONTHS.indexOf(m[1]) + 1, +m[2]);
-  m = /^(?:[a-z]+ )?(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})(?: |$)/.exec(s);
-  if (m) return fix(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2], +m[1]);
-  return '';
-}
-// An amount like "-$1,045.80", "$54.20", "+ $3,250.00", "12.50 DR" (the reader sometimes reads "$" as "S" or "§")
-const SHOT_AMT = /(^|\s)([+\-−–—]?)\s*[$S§]?\s?(\d{1,3}(?:,\d{3})+|\d+)\s?\.\s?(\d{2})(?:\s?(DR|CR))?(?=\s|$)/i;
-// Lines that hold an amount but aren't a transaction (the balance at the top of the list)
-const SHOT_NOT_TX = /\b(balance|available|overdrawn|limit|funds|total|due|minimum)\b/i;
-// Which of your accounts a screenshot is of: the one named highest up (the header), so "To Joint Spending" further down a
-// Spending screenshot doesn't pick Joint Spending. Where one line names two ("Joint Spending" holds "Spending"), the longer name wins.
-function shotAcctFrom(lines, list) {
-  for (const l of lines.slice().sort((a, b) => a.y0 - b.y0)) {
-    const low = l.text.toLowerCase(), a = list.filter(a => a.name && low.includes(a.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
-    if (a) return a;
-  }
-  // A card's screen is headed with its brand ("Mastercard", "Visa"), which may not be what you called it ("Credit Card"):
-  // then it's your one card account
-  const cards = list.filter(a => /credit|card|visa|master|amex/i.test(a.name || ''));
-  if (cards.length === 1 && lines.some(l => /\b(master ?card|visa|amex|american express|credit card)\b/i.test(l.text))) return cards[0];
-  return null;
-}
-// The transactions in one screenshot: [{date, amount, payee, dated}] (dated: false when no date heading was above it, so it had to be guessed)
-function shotTxns({lines, width}, today = todayStr()) {
-  lines = lines.slice().sort((a, b) => (a.y0 + a.y1) - (b.y0 + b.y1));
-  const items = [];
-  for (const l of lines) {
-    const d = shotDateHeading(l.text, today);
-    if (d) { items.push({kind: 'date', date: d, l}); continue; }
-    const m = SHOT_AMT.exec(l.text);
-    // Only an amount on the right-hand side is a transaction's (a balance or a "spent this month" figure sits on the left)
-    if (m && (l.x1 > width * 0.55)) {
-      const before = l.text.slice(0, m.index + m[1].length).trim();
-      items.push({kind: 'amt', l, before, sign: m[2], dr: (m[5] || '').toUpperCase(), value: parseFloat(m[3].replace(/,/g, '') + '.' + m[4])});
-    } else items.push({kind: 'text', l});
-  }
-  // Does this app mark money out with a minus? Then an amount without a sign is money in. If nothing has a sign, everything is money out.
-  const signed = items.some(i => i.kind === 'amt' && /[-−–—]/.test(i.sign));
-  const used = new Set(), out = [];
-  let date = '', prevMid = -Infinity;
-  for (const it of items) {
-    if (it.kind === 'date') { date = it.date; continue; }
-    if (it.kind !== 'amt') continue;
-    const a = it.l, h = Math.max(10, a.y1 - a.y0), mid = (a.y0 + a.y1) / 2;
-    let payee = it.before, from = null;
-    // Two-line rows (payee, then the type of payment with the amount beside it): the reader can put the amount on the second line.
-    // A line of text right on top of it, close enough to touch, is the payee
-    const above = payee && items.find(i => i.kind === 'text' && !used.has(i) && i.l.y1 > a.y0 - 2 && i.l.y0 < a.y0 && (i.l.y0 + i.l.y1) / 2 > prevMid + 2 && i.l.x0 < a.x0 + 40);
-    if (above && !SHOT_NOT_TX.test(above.l.text)) { payee = above.l.text; from = above; }
-    if (!payee) {
-      // The payee is the top line of text beside the amount (the line under it is the type of payment, like "Eftpos").
-      // Lines touching the amount come first; otherwise the nearest line above it
-      const near = items.filter(i => i.kind === 'text' && !used.has(i) && i.l.x1 < a.x0 + 4 && (i.l.y0 + i.l.y1) / 2 > prevMid + 2
-        && i.l.y1 > a.y0 - h * 1.6 && i.l.y0 < a.y1 + h * 0.6);
-      const touching = near.filter(i => i.l.y1 > a.y0 && i.l.y0 < a.y1);
-      from = (touching.length ? touching : near.filter(i => i.l.y0 < a.y0)).sort((x, y) => x.l.y0 - y.l.y0)[0] || null;
-      payee = from ? from.l.text : '';
-    }
-    if (SHOT_NOT_TX.test(payee) || SHOT_NOT_TX.test(it.l.text)) continue;
-    if (from) used.add(from);
-    prevMid = mid;
-    payee = payee.replace(/^[^A-Za-z0-9]{1,3}\s+/, '').replace(/^(?:to|fo|t0|from|frm)\s+(?:[0Oo|Il[\]■▮]\s+)?/i, '').replace(/\s*(?:…|\.{2,})\s*$/, '').replace(/^[^A-Za-z0-9(]+/, '').replace(/\s+[^A-Za-z0-9)]{1,2}$/, '').replace(/[>›»]+\s*$/, '').replace(/(\s+(?:\S?[^A-Za-z0-9\s]\S?|[A-Za-z]))+$/, '').replace(/\s*(?:…|\.{2,})\s*$/, '').replace(/\s+/g, ' ').trim();
-    const outward = /[-−–—]/.test(it.sign) || it.dr === 'DR' || (!signed && it.sign !== '+' && it.dr !== 'CR');
-    if (!(it.value > 0)) continue;
-    out.push({date: date || today, dated: !!date, amount: round2(outward ? -it.value : it.value), payee: payee || 'Unknown'});
-  }
-  return out;
 }
 // Delete transactions (like a bank's double-up). Each is kept, with its note, flag and tags, so it can be brought back
 // from the Load data tab, and so loading the same bank file again doesn't add it back.
@@ -3067,7 +2893,8 @@ function renderOverview() {
   const TILE_GO = {'Left to spend this week': 'ovview:pace', 'Balance': 'reconcile', 'Ready to Assign': 'budgets', 'Spent so far this month': 'tx:out', 'Spending': 'tx:out', 'Money in': 'tx:in', 'Left over': 'budgets', 'Lowest balance coming up': 'billview:fc', 'Top-up needed': 'billview:fc', 'Fun money this week': 'budgets'};
   const NEUTRAL = {'Left to spend this week': 'teal', 'Balance': 'teal', 'Ready to Assign': 'sky', 'Spent so far this month': 'leaf', 'Spending': 'sky', 'Money in': 'leaf', 'Left over': 'sky', 'Next money in': 'leaf', 'Lowest balance coming up': 'teal'}; // tiles with no good/warn/bad status still get a colour
   const tile = (label, value, sub, color, tip, go = label === 'Next money in' ? nxGo : TILE_GO[label]) => `<div class="tile tone-${/^(good|warn|bad)$/.test(color) ? color : NEUTRAL[label] || 'teal'}"${tip ? ` data-tip="${esc(tip)}"` : ''}${go ? ` data-go="${esc(go)}" tabindex="0" role="button"` : ''}><div class="label">${label}${tip ? infoBtn(tip) : ''}</div><div class="value"${color ? ` style="color:var(--${color})"` : ''}>${value}</div><div class="sub">${sub}</div></div>`;
-  const rtaTile = P ? tile('Ready to Assign', fmt2(P.by[m].rta), P.by[m].rta < -0.005 ? 'assigned more than you have' : 'not given a job yet', P.by[m].rta < -0.005 ? 'bad' : '', 'Money in your budget that hasn\'t been given a job yet. Give it one on the Budget tab.') : '';
+  const cpT = P ? cardPot(P.by[m], m) : null, rtaT = P ? (cpT ? round2(P.by[m].rta + cpT.unfunded) : P.by[m].rta) : 0;
+  const rtaTile = P ? tile('Ready to Assign', fmt2(rtaT), rtaT < -0.005 ? 'assigned more than you have' : cpT && cpT.unfunded > 0.005 ? `card debt not yet funded ${fmt2(cpT.unfunded)}` : 'not given a job yet', rtaT < -0.005 ? 'bad' : cpT && cpT.unfunded > 0.005 ? 'warn' : '', 'Money in your budget that hasn\'t been given a job yet. Give it one on the Budget tab.' + (cpT ? ' A card you\'re paying off over time is kept apart: what isn\'t covered yet shows as "card debt not yet funded".' : '')) : '';
   let tiles;
   if (f) {
     const nx = f.events.find(e => e.amount > 0 && e.date > f.today), nxList = nx ? f.events.filter(e => e.date === nx.date && e.amount > 0) : [], nxIn = nxList.reduce((s, e) => s + e.amount, 0), nd = nx ? daysBetween(f.today, nx.date) : 0;
@@ -3978,13 +3805,32 @@ function cardLineHTML() { // a credit card account: what's owed on it, and wheth
   const poBtns = cards.map(a => { const s = poState(a); return `${s && !s.err ? `<span class="muted">Pay-off plan: ${poSummary(s)}</span>` : ''}<button type="button" class="btn sm${a.payoff ? '' : ' primary'}" data-poopen="${esc(a.id)}">${a.payoff ? 'Change the pay-off plan' : 'Set up a pay-off plan'}</button>`; }).join('');
   const ctl = `<div class="cctl">${switches}${poBtns}</div>`;
   if (owed < 0.005) return `<div class="callout">${ctl}</div>`;
-  if (carried.length) { // paying over time: the debt sits beside the balance, and a planned repayment is what comes out of the budget
-    const planned = allBills().some(x => (x.payBack || x.cardPay) && !x.done);
-    return `<div class="callout${planned ? '' : ' over'}"><div class="ctext"><b>Credit card:</b> you owe ${fmt2(owed)}, not taken off your balance. ${planned ? 'Your planned repayments come out of the budget.' : `<b>No repayment is planned yet.</b> Set up a pay-off plan, or add a bill that pays the card back, or your spending money will look bigger than it is.`}</div>${ctl}</div>`;
+  if (carried.length) { // paying over time: the money set aside for the card is its own pot; what isn't covered yet is shown, not treated as an error
+    const planned = allBills().some(x => (x.payBack || x.cardPay) && !x.done), mm = thisMonth(), P = computePlan(mm), cp = P && P.by[mm] ? cardPot(P.by[mm], mm) : null;
+    const pay = carried.map(a => `<button type="button" class="btn sm primary" data-paycard="${esc(a.id)}" title="Move money from your bank account to the card. It's a transfer, so it doesn't count as spending.">Pay ${esc(a.name)}…</button>`).join('');
+    return `<div class="callout${planned ? '' : ' over'}"><div class="ctext"><b>Credit card:</b> you owe ${fmt2(owed)}.${cp ? ` Set aside to pay it: <b>${fmt2(cp.pot)}</b>.${cp.unfunded > 0.005 ? ` Not covered yet: <b>${fmt2(cp.unfunded)}</b>. That's what a card is for; cover it over time, at your own pace.` : ' All of it is covered.'}` : ''} ${planned ? 'Your pay-off plan is a suggestion: pay more or less when you need to.' : `<b>No repayment is planned yet.</b> Set up a pay-off plan, or add a bill that pays the card back.`}</div>${pay}${ctl}</div>`;
   }
   const bank = round2(accounts.filter(a => !cards.includes(a)).reduce((s, a) => s + (acctBalance(a.id, d) || 0), 0));
   return `<div class="callout"><div class="ctext"><b>Credit card:</b> you owe ${fmt2(owed)}. ${bank >= owed - 0.005 ? `Your other accounts hold ${fmt2(bank)}, so paying it off is covered.` : `Your other accounts hold ${fmt2(bank)}, which is <b>${fmt2(owed - bank)} short</b> of paying it off.`} <span class="muted">Card spending already comes out of its category.</span></div>${ctl}</div>`;
 }
+// A card you're paying off over time keeps its own pot ("Credit Card Payment"): the part of what's owed that your money covers.
+// Ready to Assign already counts the card debt as money you don't have, so when it's negative the shortfall (up to what's owed) is
+// moved out of it and shown as "card debt not yet funded". Only this month; the maths in money.js is unchanged.
+function cardPot(row, m) {
+  const owed = carryOwed();
+  if (!row || m !== thisMonth() || owed < 0.005) return null;
+  const unfunded = row.rta < -0.005 ? Math.min(owed, round2(-row.rta)) : 0;
+  return {owed, unfunded, pot: round2(owed - unfunded)};
+}
+document.addEventListener('click', e => { // "Pay card": a transfer from your bank account to the card
+  const b = e.target.closest && e.target.closest('[data-paycard]'); if (!b) return;
+  const card = accounts.find(a => a.id === b.dataset.paycard); if (!card) return;
+  const bank = accounts.find(a => a !== card && !/credit|card|visa|master|amex/i.test(a.name || '')) || accounts.find(a => a !== card);
+  const mm = thisMonth(), P = computePlan(mm), cp = P && P.by[mm] ? cardPot(P.by[mm], mm) : null, s = card.payoff ? poState(card) : null;
+  const owed = round2(Math.max(0, -(acctBalance(card.id, dataEnd()) || 0)));
+  const amt = Math.min(owed, s && !s.err && s.payNow > 0 ? s.payNow : cp ? cp.pot : owed); // the plan's payment if there is one, else what's set aside
+  openAddTx({amount: Math.max(0, amt), out: true, payee: `Transfer to ${card.name}`, date: todayStr(), cat: '', acct: bank ? bank.id : '', other: card.id});
+});
 document.addEventListener('change', e => { // the "paying this card off over time" switch
   const c = e.target.closest && e.target.closest('[data-carry]'); if (!c) return;
   const a = accounts.find(x => x.id === c.dataset.carry); if (!a) return;
@@ -4449,8 +4295,9 @@ function renderBudgets() {
     + (emptyCats.length ? `<tr class="emptyrow"><td colspan="8"><button type="button" class="linkbtn" data-empty title="Categories with nothing assigned, spent or available, and no target or bill">${showEmpty ? `Hide the ${emptyCats.length} empty categories` : `Show ${emptyCats.length} empty ${emptyCats.length === 1 ? 'category' : 'categories'}`}</button></td></tr>` : '')
     + (P.hiddenCats.length ? `<tr class="emptyrow"><td colspan="8"><button type="button" class="linkbtn" data-hiddenlist title="Categories you've hidden. Open the list to show one again.">${P.hiddenCats.length} hidden ${P.hiddenCats.length === 1 ? 'category' : 'categories'}: manage</button></td></tr>` : '');
 
-  const st = row.rta > 0.005 ? ['todo', '!', `${fmt2(row.rta)} still needs a job. Assign it to categories below.`]
-    : row.rta < -0.005 ? ['over', '✕', `You've assigned ${fmt2(-row.rta)} more than you have. Take some back from a category.`]
+  const cp = cardPot(row, m), rtaShow = cp ? round2(row.rta + cp.unfunded) : row.rta; // a card paid over time: its unfunded debt is shown beside, not as an error
+  const st = rtaShow > 0.005 ? ['todo', '!', `${fmt2(rtaShow)} still needs a job. Assign it to categories below.`]
+    : rtaShow < -0.005 ? ['over', '✕', `You've assigned ${fmt2(-rtaShow)} more than you have. Take some back from a category.`]
     : ['ok', '✓', 'Every dollar has a job.'];
   const overBy = -overs.reduce((s, c) => s + row.available[c], 0);
   // Budget started part-way through its first month: payments made earlier that month
@@ -4473,11 +4320,11 @@ function renderBudgets() {
         <div class="rta-actions">${FP && row.rta > 0.005 ? `<button class="btn primary" id="rtaAuto" title="Bills first, then essentials, then what's left over. You can untick or change anything before it is assigned.">Assign my pay</button>` : ''}<button class="btn" id="rtaRec">Reconcile</button><button class="btn" id="rtaMove">Move money</button><button class="btn" id="newCatBtn">+ New category</button><button class="btn" id="catsBtn">Edit categories…</button><button class="btn" id="rtaDetail" title="Show or hide the extra columns (progress, to go, plan, when)">${budgetLite() ? 'More detail' : 'Less detail'}</button></div>
       </div>
       <div class="rta-stats">
-        <div class="stat main"><div class="slabel">Ready to Assign · ${monthLabel(m)}${infoBtn("Money you have that has not been given a job yet. Aim for $0: give every dollar to a bill, a spending category or a goal.")}</div><div class="amt">${fmt2(row.rta)}</div>
-          <div class="statpills"><span class="pillst">${st[1]} ${row.rta > 0.005 ? 'Still needs a job' : row.rta < -0.005 ? 'Assigned too much' : st[2]}</span>${under > 0.005 ? `<span class="pillst neutral"><span>Targets need</span><span>${fmt2(under)}</span></span>` : ''}</div></div>
+        <div class="stat main"><div class="slabel">Ready to Assign · ${monthLabel(m)}${infoBtn("Money you have that has not been given a job yet. Aim for $0: give every dollar to a bill, a spending category or a goal.")}</div><div class="amt">${fmt2(rtaShow)}</div>
+          <div class="statpills"><span class="pillst">${st[1]} ${rtaShow > 0.005 ? 'Still needs a job' : rtaShow < -0.005 ? 'Assigned too much' : st[2]}</span>${cp && cp.unfunded > 0.005 ? `<span class="pillst neutral" style="color:var(--warn)" title="You've spent more on the card than you've set money aside for. Fund it over time; it isn't an error."><span>Card debt not yet funded</span><span>${fmt2(cp.unfunded)}</span></span>` : ''}${under > 0.005 ? `<span class="pillst neutral"><span>Targets need</span><span>${fmt2(under)}</span></span>` : ''}</div></div>
         ${bankBalHTML()}
       </div>
-      ${cardLineHTML()}${overLine}${row.rta < -0.005 ? `<div class="callout over"><span class="ctext"><b>✕ You've given out ${fmt2(-row.rta)} more than you have.</b> Take some back from a category (Move money), or it comes out of your next pay.</span></div>` : ''}${payWaitHTML(m)}
+      ${cardLineHTML()}${overLine}${rtaShow < -0.005 ? `<div class="callout over"><span class="ctext"><b>✕ You've given out ${fmt2(-rtaShow)} more than you have.</b> Take some back from a category (Move money), or it comes out of your next pay.</span></div>` : ''}${payWaitHTML(m)}
       ${planSumHTML(FP)}
       <div class="rta-extras autorow" title="Fill only uses what's in Ready to Assign. 'Same as / Spent / Average' only fill empty categories. Unassign sends unspent money back to Ready to Assign. Undo works on all of these.">
         <div class="autogrp"><span class="autolbl">Assign</span>
@@ -5566,8 +5413,6 @@ function renderData() {
       <p class="muted" style="margin-top:0">Export transactions from Westpac online banking as CSV, then drop the files here. Adding a file twice is fine: duplicates are skipped.</p>
       <p class="muted" style="font-size:12px">Keep Westpac's file names: they tell the app which account each file is from. Statements for loans and savings on your Net worth tab update those balances instead.${ONLINE ? '' : ' Everything stays in this browser on this computer.'}</p>
       <div class="drop" id="drop">Drop CSV files here, or <label style="color:var(--series-1);cursor:pointer;text-decoration:underline">choose files<input type="file" id="file" accept=".csv" multiple hidden></label></div>
-      <div class="row" style="margin-top:10px;align-items:center;gap:10px"><label class="btn">Add from screenshots<input type="file" id="shotFile" accept="image/*" multiple hidden></label>
-        <span class="muted" style="font-size:13px;flex:1;min-width:200px">Away from home? Screenshot the transaction list in the bank app and add it here. It's read on this device.</span></div>
       <p id="loadMsg"></p><p><b>${range}</b></p>
       ${accounts.length > 1 ? `<p class="muted" style="margin-bottom:0">${accounts.map(a => `${esc(a.name)}: ${txns.filter(t => acctOf(t) === a.id).length.toLocaleString()}`).join(' · ')}</p>` : ''}</div>
     <div class="card" id="fileCard"></div>
@@ -5642,7 +5487,6 @@ function renderData() {
     if (e.target.closest('[data-undoimport]')) return undoImport();
     const b = e.target.closest('[data-force]'); if (b && heldFiles[+b.dataset.force]) load([heldFiles[+b.dataset.force]], true); };
   $('#file').onchange = e => { load(e.target.files); e.target.value = ''; };
-  $('#shotFile').onchange = e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) openShots(f); };
   const drop = $('#drop');
   drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
   drop.ondragleave = () => drop.classList.remove('over');
@@ -5850,7 +5694,7 @@ function billsHTML(m, row) {
     const ct = coverText(covers[i], b.cat), status = ct ? ' · ' + ct : '';
     const act = b.manual ? `<button type="button" class="xbtn" data-billedit="${esc(b.id)}" title="Change or delete this bill">Edit</button>`
       : `<button type="button" class="xbtn" data-billhide="${esc(b.key)}" title="Not really a bill? Hide it" aria-label="Hide ${esc(b.name)}">✕</button>`;
-    return `<div class="bill billrow" data-bill="${esc(b.key)}" title="See or change this bill"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(b.name)}</b><span class="row" style="gap:2px"><b>${b.varies ? 'about ' : ''}${fmt2(b.amount)}</b>${act}</span></div>
+    return `<div class="bill billrow" data-bill="${esc(b.key)}" title="See or change this bill"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(b.name)}</b><span class="row" style="gap:2px"><b>${b.varies ? 'about ' : ''}${fmt2(b.amount)}</b>${b.out ? enterBtn(b.key) : ''}${act}</span></div>
       <div class="muted" style="font-size:12px">${dayLabel(b.next)} (${when(b.next)}) · ${b.rhythm === 'once' ? 'just once' : b.rhythm}${b.cat ? ' · ' + esc(b.cat) : ''}${b.email ? ' · from your email' : b.manual ? ' · added by you' : ''}${status}</div></div>`;
   }).join('');
   return `<div class="card" id="billsCard"><h2>Upcoming bills</h2>
@@ -6000,7 +5844,7 @@ function billsHomeHTML(bills) {
 function dueSoonHTML(bills) {
   const today = todayStr(), list = bills.filter(b => !b.done && b.out && b.next <= addDays(today, 14)).sort((a, b) => a.next < b.next ? -1 : 1);
   const when = d => { const n = daysBetween(today, d); return n < 0 ? `${-n} day${n === -1 ? '' : 's'} late` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`; };
-  return `<h2>Due in the next 2 weeks</h2>` + (list.length ? list.map(b => `<div class="bill billrow" data-bill="${esc(b.key)}" title="See or change this bill"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(b.name)}</b><b>${b.varies ? 'about ' : ''}${fmt2(b.amount)}</b></div>
+  return `<h2>Due in the next 2 weeks</h2>` + (list.length ? list.map(b => `<div class="bill billrow" data-bill="${esc(b.key)}" title="See or change this bill"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(b.name)}</b><span class="row" style="gap:6px"><b>${b.varies ? 'about ' : ''}${fmt2(b.amount)}</b>${enterBtn(b.key)}</span></div>
       <div class="muted" style="font-size:13px">${dayLabel(b.next)} · ${when(b.next)}</div></div>`).join('') + kv('Total due', fmt2(list.reduce((s, b) => s + b.amount, 0))) : '<p class="muted">Nothing is due in the next 2 weeks.</p>');
 }
 // New bills your Gmail script found, waiting for you to add or ignore (not ones already paid, long past, or already added)
@@ -6227,7 +6071,7 @@ function regularHTML(bills) {
       : b.manual ? `${esc(b.name)} <span class="muted" style="font-size:12px">· ${b.email ? 'from your email' : 'added by you'}${b.outside ? ' · paid from outside this budget' : ''}${b.payBack && b.until ? ` · ${fmt2(b.payBack.left)} left of ${fmt(b.payBack.total)}, last payment ${fmt2(b.lastAmount)} on ${shortDay(b.until)}` : ''}</span>`
       : `<button type="button" class="pbtn" data-billtx="${esc(b.name)}" title="See these payments on the Transactions tab">${esc(b.name)}</button>`;
     return `<tr${regShow === 'hidden' ? '' : ` class="billrow" data-bill="${esc(b.mailBill ? b.mailBill.key : b.key)}"`}><td>${name}<div class="muted" style="font-size:12px">${b.rhythm === 'once' ? 'just once' : b.rhythm}${b.cat ? ' · ' + esc(b.cat) : ''}${b.rhythm === 'once' ? '' : ' · ' + fmt(yearly(b)) + ' a year'}</div></td><td class="num">${b.varies && !b.email ? 'about ' : ''}${fmt2(b.amount)}</td>
-      <td style="white-space:nowrap">${b.done ? '<span class="muted">been and gone</span>' : regShow === 'hidden' ? '' : dateLabel(b.next)}</td><td class="num">${act}</td></tr>`;
+      <td style="white-space:nowrap">${b.done ? '<span class="muted">been and gone</span>' : regShow === 'hidden' ? '' : dateLabel(b.next)}</td><td class="num">${regShow === 'hidden' || b.done ? '' : enterBtn(b.mailBill ? b.mailBill.key : b.key)} ${act}</td></tr>`;
   };
   const body = list.map(row).join('') + past.map(row).join('') + (regShow !== 'hidden' ? '' : lost.map(k =>
     `<tr><td>${esc(k.slice(1))}</td><td colspan="2" class="muted">Not found in your recent transactions</td><td class="num"><button type="button" class="btn sm" data-billshow="${esc(k)}">Show again</button></td></tr>`).join(''));
@@ -6246,6 +6090,8 @@ function regularHTML(bills) {
       ${regShow === 'out' || regShow === 'subs' ? `<p style="margin:8px 0 0"><button type="button" class="btn sm" data-billview="hidden">Hidden payments (${billCfg.hidden.length})</button></p>` : ''}</details>`;
 }
 // Buttons on the bill lists (Budget and Bills tabs): hide a payment that isn't really a bill, show it again, add or change your own
+// "Enter now" on a bill's row: it came out early, so put it in now. The bill's schedule moves on by itself (see enterNowPre).
+const enterBtn = key => `<button type="button" class="btn sm" data-billenter="${esc(key)}" title="It came out already? Add it as a transaction now, without waiting for the bank file or the due date">Enter now</button>`;
 function billClick(e) {
   const b = e.target.closest('button');
   if (!b) { // a click on a bill (its row or box): see or change it
@@ -6255,7 +6101,8 @@ function billClick(e) {
     if (r && !e.target.closest('input, select, label, a')) openBillRow(r.dataset.bill);
     return;
   }
-  if ('billhide' in b.dataset) { billCfg.hidden = [...billCfg.hidden, b.dataset.billhide]; store.set('bills', billCfg); toast('Hidden. Press Undo to bring it back.'); render(); }
+  if ('billenter' in b.dataset) { const bill = allBills().find(x => x.key === b.dataset.billenter); if (bill) openAddTx(enterNowPre(bill)); }
+  else if ('billhide' in b.dataset) { billCfg.hidden = [...billCfg.hidden, b.dataset.billhide]; store.set('bills', billCfg); toast('Hidden. Press Undo to bring it back.'); render(); }
   else if ('billshow' in b.dataset) { billCfg.hidden = billCfg.hidden.filter(k => k !== b.dataset.billshow); store.set('bills', billCfg); render(); }
   else if ('billedit' in b.dataset) openBill(billCfg.added.find(x => x.id === b.dataset.billedit));
   else if ('billadd' in b.dataset) openBill(null);
@@ -8171,13 +8018,13 @@ function openAddTx(pre = null) { // pre: filled in already ("Enter now" on a bil
   $('#atCat').innerHTML = '<option value="">Sort it for me</option>' + catOptions(pre && pre.cat ? resolveCat(pre.cat) : '');
   $('#atAcctWrap').hidden = accounts.length < 2;
   $('#atAcct').innerHTML = accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
-  $('#atOtherWrap').hidden = accounts.length < 2 || !!pre; // "Enter now" on a bill is a payment, not a transfer
+  $('#atOtherWrap').hidden = accounts.length < 2 || (!!pre && !pre.other); // "Enter now" on a bill is a payment, not a transfer ("Pay card" is one: pre.other)
   atAutoPayee = '';
   if (pre) {
     if (pre.cat) $('#atCat').value = resolveCat(pre.cat); else atGuessCat(); // no category on the bill: sort it from the payee
     if (accounts.some(a => a.id === pre.acct)) $('#atAcct').value = pre.acct;
   }
-  atOtherList(); $('#atOther').value = '-';
+  atOtherList(); $('#atOther').value = pre && pre.other && accounts.some(a => a.id === pre.other) ? pre.other : '-';
   const d = $('#addTxDlg'); d.returnValue = ''; d.showModal(); $('#atAmt').focus();
 }
 $('#addTxBtn').onclick = () => openAddTx();
@@ -8209,101 +8056,6 @@ $('#addTxDlg').addEventListener('close', () => {
   const t = addHandTx({date, amount: $('#atDir').value === 'in' ? amt : -amt, payee, cat: atCatPicked ? $('#atCat').value : '', note: $('#atNote').value.trim(), acct, other});
   if (t.pair) { const [from, to] = t.amount < 0 ? [acct, other] : [other, acct]; toast(`Added transfer ${fmt2(amt)} ${acctName(from)} → ${acctName(to)}`); }
   else toast(`Added ${payee} ${fmt2(t.amount)}${atCatPicked && $('#atCat').value ? ' to ' + $('#atCat').value : ''}`);
-});
-// "Add from screenshots" (Load data tab): read each screenshot, then show what was found to check and change before adding
-let shotRows = [], shotBusy = false;
-async function openShots(files) {
-  if (shotBusy) return;
-  shotBusy = true; shotRows = [];
-  const d = $('#shotDlg'), msg = $('#shotMsg');
-  $('#shotList').innerHTML = ''; $('#shotAdd').disabled = true; $('#shotAcctWrap').hidden = true;
-  msg.textContent = 'Getting the screenshot reader ready…';
-  d.returnValue = ''; d.showModal();
-  let worker = null, named = null;
-  try {
-    worker = await ocrWorker(m => { if (m.status === 'loading language traineddata' && m.progress < 1) msg.textContent = `Getting the screenshot reader ready (the first time it downloads about 7 MB)… ${Math.round(m.progress * 100)}%`; });
-    const seen = new Set();
-    for (const [i, f] of files.entries()) {
-      if (!d.open) return; // cancelled
-      msg.textContent = files.length > 1 ? `Reading screenshot ${i + 1} of ${files.length}…` : 'Reading the screenshot…';
-      const r = await ocrLines(worker, f), found = shotTxns(r), mine = new Set();
-      named = named || shotAcctFrom(r.lines, acctList()); // the first screenshot that names an account
-      // Screenshots that overlap (scrolled a little each time) show some transactions twice: keep the first. The same one twice in ONE screenshot is real (two coffees)
-      for (const t of found) {
-        const k = [t.date, t.amount.toFixed(2), t.payee.toLowerCase().replace(/[^a-z0-9]/g, '')].join('|');
-        if (seen.has(k) && !mine.has(k)) continue;
-        mine.add(k); shotRows.push({...t, file: i});
-      }
-      for (const k of mine) seen.add(k);
-    }
-  } catch (e) {
-    console.error(e);
-    msg.innerHTML = `<span style="color:var(--warn)">!</span> ${esc(e && e.message || "Couldn't read the screenshot.")}`;
-    return;
-  } finally { shotBusy = false; if (worker) worker.terminate().catch(() => {}); }
-  if (!d.open) return;
-  // Which account: the one whose name is on the screenshot (like "Joint Spending"), or the first
-  const list = acctList();
-  $('#shotAcct').innerHTML = list.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
-  if (named) $('#shotAcct').value = named.id;
-  $('#shotAcctWrap').hidden = list.length < 2;
-  drawShots();
-}
-// Ones you already have (from the bank, or added before): same account and amount, within 3 days. Each of yours matches one screenshot row at most.
-function shotHave(rows, acct) {
-  const pool = txns.filter(t => (t.acct || '') === acct), used = new Set();
-  return rows.map(r => {
-    const m = pool.find(t => !used.has(t) && Math.abs(t.amount - r.amount) < 0.005 && Math.abs(daysBetween(t.date, r.date)) <= 3);
-    if (m) used.add(m);
-    return m || null;
-  });
-}
-function drawShots() {
-  const acct = $('#shotAcctWrap').hidden ? '' : $('#shotAcct').value, have = shotHave(shotRows, acct), msg = $('#shotMsg');
-  if (!shotRows.length) {
-    msg.innerHTML = `<span style="color:var(--warn)">!</span> No transactions found. Use a screenshot of the list of transactions (with the dates and amounts showing), not a single payment's details.`;
-    $('#shotList').innerHTML = ''; $('#shotAdd').disabled = true; return;
-  }
-  shotRows.forEach((r, i) => { if (r.on === undefined) r.on = !have[i]; });
-  const dup = have.filter(Boolean).length;
-  msg.textContent = `Found ${shotRows.length} transaction${shotRows.length === 1 ? '' : 's'}.` + (dup ? ` ${dup === shotRows.length ? (dup === 1 ? "You already have it, so it isn't ticked" : "You already have all of them, so they aren't ticked") : dup === 1 ? "1 you already have isn't ticked" : `${dup} you already have aren't ticked`}.` : ' Check them, then press Add.');
-  $('#shotList').innerHTML = shotRows.map((r, i) => `<div class="shotrow${r.on ? '' : ' off'}" data-i="${i}">
-      <input type="checkbox" data-k="on"${r.on ? ' checked' : ''} aria-label="Add this one">
-      <input type="text" class="sp" data-k="payee" value="${esc(r.payee)}" aria-label="Payee" autocomplete="off">
-      <input type="text" class="sa" data-k="amount" value="${r.amount.toFixed(2)}" inputmode="decimal" aria-label="Amount (money out has a minus)">
-      <div class="sd"><input type="date" data-k="date" value="${esc(r.date)}" aria-label="Date">
-        ${!r.dated ? `<span class="muted"><span style="color:var(--warn)">!</span> No date above it on the screenshot: check the date</span>` : ''}
-        ${have[i] ? `<span class="muted">You already have this: ${esc(payeeName(have[i]))}, ${dateLabel(have[i].date)}${have[i].manual ? ' (added by hand)' : ''}</span>` : ''}</div></div>`).join('');
-  shotCount();
-}
-function shotCount() {
-  const n = shotRows.filter(r => r.on).length;
-  $('#shotAdd').disabled = !n; $('#shotAdd').textContent = n ? `Add ${n}` : 'Add';
-}
-$('#shotAcct').addEventListener('change', () => { shotRows.forEach(r => delete r.on); drawShots(); });
-$('#shotList').addEventListener('input', e => {
-  const row = e.target.closest('.shotrow'), k = e.target.dataset.k;
-  if (!row || !k) return;
-  const r = shotRows[+row.dataset.i];
-  if (k === 'on') { r.on = e.target.checked; row.classList.toggle('off', !r.on); shotCount(); }
-  else if (k === 'payee') r.payee = e.target.value;
-  else if (k === 'date') r.date = e.target.value;
-  else if (k === 'amount') { const v = parseFloat(e.target.value.replace(/[−–—]/g, '-').replace(/[$,\s]/g, '')); r.amountBad = !(Math.abs(v) > 0); if (!r.amountBad) r.amount = round2(v); }
-});
-$('#shotDlg').addEventListener('close', async () => {
-  if ($('#shotDlg').returnValue !== 'ok') return;
-  const acct = $('#shotAcctWrap').hidden ? '' : $('#shotAcct').value;
-  const pick = shotRows.filter(r => r.on && !r.amountBad && /^\d{4}-\d{2}-\d{2}$/.test(r.date))
-    .map(r => ({date: r.date, amount: r.amount, payee: r.payee.trim().replace(/\s+/g, ' ') || 'Unknown', acct}));
-  const left = shotRows.filter(r => r.on).length - pick.length;
-  if (!pick.length) return toast("Nothing added: check the dates and amounts");
-  if (txns.length) await keepCopy('before loading screenshots');
-  addHandTxs(pick);
-  const out = round2(pick.reduce((s, t) => s + t.amount, 0)), m = $('#loadMsg');
-  toast(`Added ${pick.length} transaction${pick.length === 1 ? '' : 's'} (${fmt2(out)})`);
-  if (m) m.innerHTML = esc(`Added ${pick.length} transaction${pick.length === 1 ? '' : 's'} from screenshots${acctList().length > 1 ? ' to ' + acctName(acct) : ''}. The bank's copies replace them when you next load a CSV, keeping your categories and notes.`)
-    + (left ? `<br><span style="color:var(--warn)">!</span> ${left} ticked ${left === 1 ? "one wasn't" : "ones weren't"} added: ${left === 1 ? 'its' : 'their'} date or amount couldn't be read.` : '')
-    + ' <button type="button" class="btn sm" data-undoimport>Undo this import</button>';
 });
 // Tag menu: type a new tag or pick one you've used; take tags off
 $('#tagMenu').addEventListener('input', e => { if (e.target.id === 'tmText') drawTagMenu(); });
