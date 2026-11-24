@@ -1312,7 +1312,8 @@ function csvTxns(text, acct = '') {
 // A transaction's id without the "#0" on the end. Transactions from your first account have no account in it,
 // so ids made before there were accounts still match (and keep their notes, flags and splits).
 // The same payee, the way the bank writes it on different days: "NEW WORLD NORTHWOOD" / "New World Northwo 10", "FRM 0905-…" / "From 0905-…"
-const payeeCore = t => (t.party || '').toLowerCase().replace(/^frm\b/, 'from').replace(/[^a-z0-9]/g, '');
+// The day number Westpac adds on the end ("Crisp 23") is dropped, so a short name still matches its other copy ("Crisp")
+const payeeCore = t => (t.party || '').toLowerCase().replace(/^frm\b/, 'from').replace(/\s+\d{1,2}$/, '').replace(/[^a-z0-9]/g, '');
 const samePayee = (a, b) => { const x = payeeCore(a), y = payeeCore(b); return x.length < 8 || y.length < 8 ? x === y : x.slice(0, 8) === y.slice(0, 8); };
 const keyOf = t => (t.acct ? t.acct + '|' : '') + [t.date, t.amount.toFixed(2), t.party, t.desc, t.ref, t.part, t.code].join('|');
 
@@ -1356,8 +1357,11 @@ function importFiles(fileTexts, info = {}, accts = [], fresh = new Set()) {
       const lo = list.reduce((a, t) => t.date < a ? t.date : a, list[0].date), hi = list.reduce((a, t) => t.date > a ? t.date : a, list[0].date);
       const stale = [], mates = [];
       let inRange = 0;
+      // Westpac's newest rows are provisional (a reference like "23/11 15:39", dated the next business day). When they settle they can move
+      // back to the day of the purchase, so a provisional row up to 4 days after this file's last day is still one this file may have replaced.
+      const provisional = t => /^\d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/.test(t.ref || '');
       for (const [k, c] of Object.entries(counts)) {
-        if ((c.t.acct || '') !== acct || c.t.date < lo || c.t.date > hi) continue;
+        if ((c.t.acct || '') !== acct || c.t.date < lo || (c.t.date > hi && !(provisional(c.t) && c.t.date <= addDays(hi, 4)))) continue;
         const had = []; for (let i = 0; i < c.n; i++) if (before.has(k + '#' + i)) had.push(k + '#' + i);
         inRange += had.length;
         for (let i = local[k]?.n || 0; i < had.length; i++) stale.push({id: had[i], k, t: before.get(had[i])}); // more than this file has
@@ -1387,12 +1391,21 @@ function importFiles(fileTexts, info = {}, accts = [], fresh = new Set()) {
   for (const [k, v] of Object.entries(counts)) for (let i = 0; i < v.n; i++) if (!deletedTx[k + '#' + i]) bank.push({...v.t, id: k + '#' + i});
   // Transactions you added by hand: the bank's copy replaces each one (same account and amount, from 3 days before to 10 days after),
   // and takes over your category, note, flag and tags
-  const matched = new Set(), kept = [];
-  for (const h of hand.slice().sort((a, b) => a.date < b.date ? -1 : 1)) {
-    const b = bank.filter(t => newIds.has(t.id) && !matched.has(t.id) && (t.acct || '') === (h.acct || '') && Math.abs(t.amount - h.amount) < 0.005
+  // First the same amount to the cent; then, for ones still left, a near amount (within 10%) from a payee that starts the same way:
+  // a pending card purchase in another currency often settles at a slightly different amount
+  const matched = new Set(), kept = [], pairs = new Map(), hands = hand.slice().sort((a, b) => a.date < b.date ? -1 : 1);
+  const start = s => (s || '').toLowerCase().replace(/^(?:to|from|frm)\s+/, '').replace(/[^a-z0-9]/g, '').slice(0, 5);
+  for (const pass of [0, 1]) for (const h of hands) {
+    if (pairs.has(h)) continue;
+    const near = t => pass === 0 ? Math.abs(t.amount - h.amount) < 0.005
+      : Math.sign(t.amount) === Math.sign(h.amount) && Math.abs(t.amount - h.amount) <= Math.abs(h.amount) * 0.1 && start(t.party).length >= 3 && start(t.party) === start(h.party);
+    const b = bank.filter(t => newIds.has(t.id) && !matched.has(t.id) && (t.acct || '') === (h.acct || '') && near(t)
       && t.date >= addDays(h.date, -3) && t.date <= addDays(h.date, 10)).sort((x, y) => Math.abs(daysBetween(h.date, x.date)) - Math.abs(daysBetween(h.date, y.date)))[0];
+    if (b) { matched.add(b.id); pairs.set(h, b); }
+  }
+  for (const h of hands) {
+    const b = pairs.get(h);
     if (!b) { kept.push(h); continue; }
-    matched.add(b.id);
     for (const map of [overrides, notes, flags, tags, splits]) if (map[h.id] !== undefined) { if (map[b.id] === undefined) map[b.id] = map[h.id]; delete map[h.id]; }
     delete unchecked[b.id]; delete unchecked[h.id]; // you've already sorted it
   }
@@ -1506,6 +1519,15 @@ function shotDateHeading(s, today = todayStr()) {
 const SHOT_AMT = /(^|\s)([+\-−–—]?)\s*[$S§]?\s?(\d{1,3}(?:,\d{3})+|\d+)\s?\.\s?(\d{2})(?:\s?(DR|CR))?(?=\s|$)/i;
 // Lines that hold an amount but aren't a transaction (the balance at the top of the list)
 const SHOT_NOT_TX = /\b(balance|available|overdrawn|limit|funds|total|due|minimum)\b/i;
+// Which of your accounts a screenshot is of: the one named highest up (the header), so "To Joint Spending" further down a
+// Spending screenshot doesn't pick Joint Spending. Where one line names two ("Joint Spending" holds "Spending"), the longer name wins.
+function shotAcctFrom(lines, list) {
+  for (const l of lines.slice().sort((a, b) => a.y0 - b.y0)) {
+    const low = l.text.toLowerCase(), a = list.filter(a => a.name && low.includes(a.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
+    if (a) return a;
+  }
+  return null;
+}
 // The transactions in one screenshot: [{date, amount, payee, dated}] (dated: false when no date heading was above it, so it had to be guessed)
 function shotTxns({lines, width}, today = todayStr()) {
   lines = lines.slice().sort((a, b) => (a.y0 + a.y1) - (b.y0 + b.y1));
@@ -8193,7 +8215,7 @@ async function openShots(files) {
   $('#shotList').innerHTML = ''; $('#shotAdd').disabled = true; $('#shotAcctWrap').hidden = true;
   msg.textContent = 'Getting the screenshot reader ready…';
   d.returnValue = ''; d.showModal();
-  let worker = null, text = '';
+  let worker = null, named = null;
   try {
     worker = await ocrWorker(m => { if (m.status === 'loading language traineddata' && m.progress < 1) msg.textContent = `Getting the screenshot reader ready (the first time it downloads about 7 MB)… ${Math.round(m.progress * 100)}%`; });
     const seen = new Set();
@@ -8201,7 +8223,7 @@ async function openShots(files) {
       if (!d.open) return; // cancelled
       msg.textContent = files.length > 1 ? `Reading screenshot ${i + 1} of ${files.length}…` : 'Reading the screenshot…';
       const r = await ocrLines(worker, f), found = shotTxns(r), mine = new Set();
-      text += ' ' + r.lines.map(l => l.text).join(' ');
+      named = named || shotAcctFrom(r.lines, acctList()); // the first screenshot that names an account
       // Screenshots that overlap (scrolled a little each time) show some transactions twice: keep the first. The same one twice in ONE screenshot is real (two coffees)
       for (const t of found) {
         const k = [t.date, t.amount.toFixed(2), t.payee.toLowerCase().replace(/[^a-z0-9]/g, '')].join('|');
@@ -8217,9 +8239,8 @@ async function openShots(files) {
   } finally { shotBusy = false; if (worker) worker.terminate().catch(() => {}); }
   if (!d.open) return;
   // Which account: the one whose name is on the screenshot (like "Joint Spending"), or the first
-  const list = acctList(), low = text.toLowerCase();
+  const list = acctList();
   $('#shotAcct').innerHTML = list.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
-  const named = list.filter(a => a.name && low.includes(a.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
   if (named) $('#shotAcct').value = named.id;
   $('#shotAcctWrap').hidden = list.length < 2;
   drawShots();
