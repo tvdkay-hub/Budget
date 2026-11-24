@@ -4498,7 +4498,7 @@ function renderBudgets() {
     if (out > 0) { early.n++; early.total += out; }
   }
   // One card at the top: where Ready to Assign stands, any overspending, and the plan for the rest of the month. Each line has its button.
-  const overLine = overs.length ? `<div class="callout over" title="Anything not covered by the end of the month comes out of next month's money.">
+  const overLine = overs.length ? `<div class="callout over" data-jumpover style="cursor:pointer" title="Click to jump to the first overspent category. Anything not covered by the end of the month comes out of next month's money.">
       <span class="ctext"><b>✕ ${overs.length} ${overs.length === 1 ? 'category is' : 'categories are'} overspent by ${fmt2(overBy)}.</b> ${row.rta > 0.005
         ? `That money's already spent, so ${row.rta - overBy > 0.005 ? `only ${fmt2(row.rta - overBy)} of Ready to Assign is really free` : 'none of Ready to Assign is really free'}.`
         : 'Press <b>Cover it</b> on the red rows to move money in from another category.'} <span class="muted">Anything not covered by the end of the month comes off next month's Ready to Assign.</span></span>
@@ -4578,6 +4578,12 @@ function renderBudgets() {
   });
   // every Auto-assign button (top card, including "Cover what's been spent"); works whether or not a category's panel is open
   el.querySelectorAll('.rta [data-auto]').forEach(b => b.onclick = () => { autoAssign(b.dataset.auto, m, P); renderBudgets(); });
+  const jo = el.querySelector('[data-jumpover]'); // the overspent banner: click to jump to the first red row
+  if (jo) jo.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    const r = [...el.querySelectorAll('tr.cat[data-cat]')].find(r => overs.includes(r.dataset.cat));
+    if (r) { r.scrollIntoView({behavior: 'smooth', block: 'center'}); r.animate([{outline: '3px solid var(--bad)'}, {outline: '3px solid transparent'}], {duration: 1500}); }
+  });
   el.querySelector('table.plan').addEventListener('click', e => {
     if (e.target.closest('[data-hiddenlist]')) { openCats(); return; }
     if (e.target.closest('[data-empty]')) { showEmpty = !showEmpty; localStorage.setItem('budget-show-empty', showEmpty ? '1' : ''); renderBudgets(); return; }
