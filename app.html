@@ -1526,6 +1526,10 @@ function shotAcctFrom(lines, list) {
     const low = l.text.toLowerCase(), a = list.filter(a => a.name && low.includes(a.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
     if (a) return a;
   }
+  // A card's screen is headed with its brand ("Mastercard", "Visa"), which may not be what you called it ("Credit Card"):
+  // then it's your one card account
+  const cards = list.filter(a => /credit|card|visa|master|amex/i.test(a.name || ''));
+  if (cards.length === 1 && lines.some(l => /\b(master ?card|visa|amex|american express|credit card)\b/i.test(l.text))) return cards[0];
   return null;
 }
 // The transactions in one screenshot: [{date, amount, payee, dated}] (dated: false when no date heading was above it, so it had to be guessed)

@@ -113,6 +113,9 @@ test('a screenshot is of the account named in its header', () => {
   assert.strictEqual(c.shotAcctFrom([L('Joint Spending', 40), L('Spending top up', 300)], list).name, 'Joint Spending');
   assert.strictEqual(c.shotAcctFrom([L('Mastercard', 30), L('PAYMENT RECEIVED', 200)], list).name, 'Mastercard');
   assert.strictEqual(c.shotAcctFrom([L('Recent transactions', 30)], list), null);
+  const named = [{id: '', name: 'Account 0101-0123456-000'}, {id: 'cc', name: 'Credit Card'}, {id: 'sv', name: "Tim's Savings"}];
+  assert.strictEqual(c.shotAcctFrom([L('< Mastercard', 30), L('to McDonalds 640377 - $29.50', 300)], named).id, 'cc', 'card named differently in the app');
+  assert.strictEqual(c.shotAcctFrom([L('Spending', 30), L('to SMZ*SHARING SHED - $40.40', 300)], named), null);
 });
 
 let failed = 0;
