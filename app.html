@@ -4492,7 +4492,7 @@ function renderBudgets() {
     else if (av > 0.005) pill = 'has';
     const fl = flagOf(c);
     return `<tr class="cat${selCat === c ? ' sel' : ''}${fl ? ' flag-' + fl.cls : ''}" data-cat="${esc(c)}">
-      <td><button type="button" class="catname" data-catpick="${esc(c)}" aria-expanded="${selCat === c}" title="Show its target, details and transactions">${esc(c)}</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${FAMILY && t && t.outside ? `${ofInfo() ? ` <span class="muted offnow" title="What's left to draw in the offset today">Offset: <b>${fmt2(ofInfo().now)}</b> available</span>` : ''} <button type="button" class="btn sm" data-offavail title="Type what your bank says is available to draw in the offset now">Update offset</button>` : ''}${paceBadge(c)}${fl ? ` <span class="rowflag ${fl.cls}" title="${esc(fl.tip)}">${esc(fl.label)}</span>` : ''}${metaOf(c, t)}</td>${colsOf(c, t)}
+      <td><button type="button" class="catname" data-catpick="${esc(c)}" title="Show this month's transactions">${esc(c)}</button> <button type="button" class="btn sm" data-catpanel="${esc(c)}" aria-expanded="${selCat === c}" title="Show its target and details" aria-label="Details for ${esc(c)}" style="padding:0 6px;opacity:.6">⚙</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${FAMILY && t && t.outside ? `${ofInfo() ? ` <span class="muted offnow" title="What's left to draw in the offset today">Offset: <b>${fmt2(ofInfo().now)}</b> available</span>` : ''} <button type="button" class="btn sm" data-offavail title="Type what your bank says is available to draw in the offset now">Update offset</button>` : ''}${paceBadge(c)}${fl ? ` <span class="rowflag ${fl.cls}" title="${esc(fl.tip)}">${esc(fl.label)}</span>` : ''}${metaOf(c, t)}</td>${colsOf(c, t)}
       <td class="num"><input type="text" inputmode="decimal" class="asg" data-asg="${esc(c)}" value="${row.assigned[c] ? row.assigned[c].toFixed(2) : ''}" placeholder="0.00" title="Type an amount. +50 adds, -20 takes away."></td>
       <td class="num">${fmt2(row.activity[c])}</td>
       <td class="num"><span class="pill ${pill}">${fmt2(av)}</span></td></tr>`;
@@ -4618,17 +4618,18 @@ function renderBudgets() {
     const add = e.target.closest('[data-addcat]');
     if (add) { openNewCat({group: add.dataset.addcat}); return; }
     const pick = e.target.closest('[data-catpick]');
-    if (pick) { // a category's name: open or close its panel. From the keyboard, focus goes to the panel (or back to the name).
-      const c = pick.dataset.catpick;
+    if (pick) { openMonthTx(pick.dataset.catpick, m); return; } // a category's name: just its transactions for the month
+    const pnl = e.target.closest('[data-catpanel]');
+    if (pnl) { // the ⚙ button: open or close the side panel. From the keyboard, focus goes to the panel (or back to the button).
+      const c = pnl.dataset.catpanel;
       selCat = selCat === c ? null : c; renderBudgets(); showCatPanel(c);
-      if (selCat) openMonthTx(c, m);
-      const f =selCat ? $('#insClose') : el.querySelector(`[data-catpick="${CSS.escape(c)}"]`);
+      const f = selCat ? $('#insClose') : el.querySelector(`[data-catpanel="${CSS.escape(c)}"]`);
       if (f && e.detail === 0) f.focus();
       return;
     }
     if (e.target.closest('input, button')) return;
     const tr = e.target.closest('tr[data-cat]');
-    if (tr) { const c = tr.dataset.cat; selCat = selCat === c ? null : c; renderBudgets(); showCatPanel(c); if (selCat) openMonthTx(c, m); }
+    if (tr) openMonthTx(tr.dataset.cat, m);
   });
   if (selCat) bindCategory(selCat, m, P, row);
   bindSummary(m, P);
@@ -4815,7 +4816,7 @@ function categoryHTML(c, m, P, row, t) {
 function bindCategory(c, m, P, row) {
   $('#insClose').onclick = e => {
     selCat = null; renderBudgets(); showCatPanel(c);
-    const b = $('#tab-budgets').querySelector(`[data-catpick="${CSS.escape(c)}"]`);
+    const b = $('#tab-budgets').querySelector(`[data-catpanel="${CSS.escape(c)}"]`);
     if (b && e.detail === 0) b.focus(); // from the keyboard: back to the category you were on
   };
   $('#insMove').onclick = () => openMove(m, P, {from: '__RTA', to: c});
