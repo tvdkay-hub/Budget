@@ -465,6 +465,9 @@ label[for=monthSel] { display: none; }
 .rta .callout.over { background: color-mix(in srgb, var(--bad) 9%, transparent); border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
 .rta .callout > .ctext { flex: 1 1 320px; min-width: 0; }
 .rta .callout > .cctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.rta .callout .cstats { display: flex; flex-wrap: wrap; gap: 2px 16px; align-items: baseline; }
+.rta .callout .cnote { font-size: 12px; margin-top: 2px; }
+.rta .callout > .csub { flex: 1 1 100%; justify-content: space-between; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); font-size: 13px; }
 .rta .callout .cctl label { display: inline-flex; align-items: center; gap: 6px; }
 .rta-extras { display: flex; flex-wrap: wrap; gap: 0 24px; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); padding-top: 6px; }
 .rta-extras > details { flex: 1 1 280px; margin: 4px 0 !important; }
@@ -3810,7 +3813,12 @@ function cardLineHTML() { // a credit card account: what's owed on it, and wheth
   if (carried.length) { // paying over time: the money set aside for the card is its own pot; what isn't covered yet is shown, not treated as an error
     const planned = allBills().some(x => (x.payBack || x.cardPay) && !x.done), mm = thisMonth(), P = computePlan(mm), cp = P && P.by[mm] ? cardPot(P.by[mm], mm) : null;
     const pay = carried.map(a => `<button type="button" class="btn sm primary" data-paycard="${esc(a.id)}" title="Move money from your bank account to the card. It's a transfer, so it doesn't count as spending.">Pay ${esc(a.name)}…</button>`).join('');
-    return `<div class="callout${planned ? '' : ' over'}"><div class="ctext"><b>Credit card:</b> you owe ${fmt2(owed)}.${cp ? ` Set aside to pay it: <b>${fmt2(cp.pot)}</b>.${cp.unfunded > 0.005 ? ` Not covered yet: <b>${fmt2(cp.unfunded)}</b>. That's what a card is for; cover it over time, at your own pace.` : ' All of it is covered.'}` : ''} ${planned ? 'Your pay-off plan is a suggestion: pay more or less when you need to.' : `<b>No repayment is planned yet.</b> Set up a pay-off plan, or add a bill that pays the card back.`}</div>${pay}${ctl}</div>`;
+    const sg = carried.map(a => a.payoff ? poState(a) : null).find(s => s && !s.err && s.payNow > 0.005), cat = KIND['Credit Card'] ? 'Credit Card' : '';
+    const have = cat ? ((plan.assigned[mm] || {})[cat] || 0) : 0, need = sg ? round2(sg.payNow - have) : 0;
+    const alloc = sg && cat ? (need > 0.005 ? `<button type="button" class="btn sm primary" data-allocpay="${round2(need)}" data-alloccat="${esc(cat)}" title="Put the pay-off plan's ${fmt2(sg.payNow)} into the ${esc(cat)} category for this month.">Allocate ${fmt2(need)}</button>` : `<span class="muted">${fmt2(sg.payNow)} allocated ✓</span>`) : '';
+    const stats = `<span>Owed <b>${fmt2(owed)}</b></span>${cp ? `<span>Set aside <b>${fmt2(cp.pot)}</b></span>${cp.unfunded > 0.005 ? `<span>Not covered yet <b>${fmt2(cp.unfunded)}</b></span>` : ''}` : ''}`;
+    const note = planned ? `A card is for covering over time. Your pay-off plan is a suggestion: pay more or less when you need to.` : `<b>No repayment is planned yet.</b> Set up a pay-off plan, or add a bill that pays the card back.`;
+    return `<div class="callout${planned ? '' : ' over'}"><div class="ctext"><div class="cstats"><b>Credit card</b>${stats}</div><div class="muted cnote">${note}</div></div><div class="cctl">${alloc}${pay}</div><div class="cctl csub">${switches}${poBtns}</div></div>`;
   }
   const bank = round2(accounts.filter(a => !cards.includes(a)).reduce((s, a) => s + (acctBalance(a.id, d) || 0), 0));
   return `<div class="callout"><div class="ctext"><b>Credit card:</b> you owe ${fmt2(owed)}. ${bank >= owed - 0.005 ? `Your other accounts hold ${fmt2(bank)}, so paying it off is covered.` : `Your other accounts hold ${fmt2(bank)}, which is <b>${fmt2(owed - bank)} short</b> of paying it off.`} <span class="muted">Card spending already comes out of its category.</span></div>${ctl}</div>`;
@@ -3824,6 +3832,11 @@ function cardPot(row, m) {
   const unfunded = row.rta < -0.005 ? Math.min(owed, round2(-row.rta)) : 0;
   return {owed, unfunded, pot: round2(owed - unfunded)};
 }
+document.addEventListener('click', e => { // "Allocate": put the pay-off plan's amount into the card category for this month
+  const b = e.target.closest && e.target.closest('[data-allocpay]'); if (!b) return;
+  const m = thisMonth(), c = b.dataset.alloccat, amt = +b.dataset.allocpay;
+  setAssigned(m, c, round2(((plan.assigned[m] || {})[c] || 0) + amt)); refresh(); toast(`Allocated ${fmt2(amt)} to ${c}`);
+});
 document.addEventListener('click', e => { // "Pay card": a transfer from your bank account to the card
   const b = e.target.closest && e.target.closest('[data-paycard]'); if (!b) return;
   const card = accounts.find(a => a.id === b.dataset.paycard); if (!card) return;
