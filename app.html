@@ -769,7 +769,7 @@ main th.sort-desc::after { content: ' ▼'; font-size: .75em; }
   <form method="dialog">
     <h2 style="margin:0 0 12px;font-size:16px">Move money</h2>
     <div style="display:grid;gap:10px">
-      <label>Amount $ <input type="number" id="mvAmt" min="0.01" step="0.01" required style="width:100%"></label>
+      <label>Amount $ <span id="mvMax" class="muted"></span> <input type="number" id="mvAmt" min="0.01" step="0.01" required style="width:100%"></label>
       <label>From <select id="mvFrom" style="width:100%"></select></label>
       <label>To <select id="mvTo" style="width:100%"></select></label>
     </div>
@@ -3555,9 +3555,21 @@ function openMove(m, P, {from = '__RTA', to = '', amt = ''} = {}) {
   $('#mvFrom').innerHTML = opts; $('#mvTo').innerHTML = opts;
   $('#mvFrom').value = from;
   $('#mvTo').value = to || (from === '__RTA' ? P.budgetCats[0] : '__RTA');
-  $('#mvAmt').value = amt ? round2(amt).toFixed(2) : '';
-  const d = $('#moveDlg'); d.dataset.month = m; d.returnValue = ''; d.showModal();
+  const d = $('#moveDlg'); d.dataset.month = m; d.returnValue = '';
+  moveAvail = f => Math.max(0, round2(f === '__RTA' ? row.rta : (row.available[f] || 0)));
+  const cap = moveAvail(from);
+  $('#mvAmt').value = amt ? round2(Math.min(amt, cap)).toFixed(2) : '';
+  moveLimit();
+  d.showModal();
   $('#mvAmt').focus();
+}
+// Never take more than the "From" budget holds (so it can't go below $0)
+let moveAvail = () => 0;
+function moveLimit(clamp) {
+  const cap = moveAvail($('#mvFrom').value), a = $('#mvAmt');
+  a.max = cap.toFixed(2);
+  $('#mvMax').textContent = `(up to ${fmt2(cap)} available)`;
+  if (clamp && parseFloat(a.value) > cap) a.value = cap.toFixed(2);
 }
 
 function autoAssign(kind, m, P) {
@@ -7879,10 +7891,13 @@ function placeNav() {
 }
 if (typeof matchMedia === 'function') { matchMedia('(max-width: 700px)').addEventListener('change', placeNav); placeNav(); }
 // Move money dialog: Assigned goes down in "From" and up in "To" (Ready to Assign isn't a category)
+$('#mvFrom').addEventListener('change', () => moveLimit(true));
+$('#mvAmt').addEventListener('change', () => moveLimit(true));
 $('#moveDlg').addEventListener('close', () => {
   const d = $('#moveDlg'), m = d.dataset.month;
   if (d.returnValue !== 'ok') return;
-  const amt = round2(parseFloat($('#mvAmt').value) || 0), from = $('#mvFrom').value, to = $('#mvTo').value;
+  const from = $('#mvFrom').value, to = $('#mvTo').value;
+  const amt = Math.min(round2(parseFloat($('#mvAmt').value) || 0), moveAvail(from));
   if (!(amt > 0) || from === to) return;
   const cur = c => (plan.assigned[m] || {})[c] || 0;
   if (from !== '__RTA') setAssigned(m, from, cur(from) - amt);
