@@ -1748,6 +1748,7 @@ function deleteCategory(c, to = '') {
   }
   delete plan.targets[c];
   if (plan.priority) delete plan.priority[c];
+  if (plan.buildUp) delete plan.buildUp[c];
   if (plan.fixed) delete plan.fixed[c];
   if (plan.barView) delete plan.barView[c];
   for (const k in (plan.acctCat || {})) if (plan.acctCat[k] === c) { if (to) plan.acctCat[k] = to; else delete plan.acctCat[k]; } // an account that held its money in this category
@@ -1789,6 +1790,7 @@ function renameCategory(old, name, group) {
     for (const m in plan.assigned) if (old in plan.assigned[m]) { plan.assigned[m][name] = plan.assigned[m][old]; delete plan.assigned[m][old]; }
     if (plan.targets[old]) { plan.targets[name] = plan.targets[old]; delete plan.targets[old]; }
     if (plan.priority && plan.priority[old]) { plan.priority[name] = plan.priority[old]; delete plan.priority[old]; }
+    if (plan.buildUp && old in plan.buildUp) { plan.buildUp[name] = plan.buildUp[old]; delete plan.buildUp[old]; }
     if (plan.fixed && plan.fixed[old]) { plan.fixed[name] = true; delete plan.fixed[old]; }
     if (plan.barView && plan.barView[old]) { plan.barView[name] = plan.barView[old]; delete plan.barView[old]; }
     plan.hidden = (plan.hidden || []).map(swap);
@@ -2532,7 +2534,7 @@ function setAsideMoney(bills, today) {
 }
 function weekAllowance(today = todayStr()) {
   if (!plan.cutoff || !txns.length) return null;
-  const hand = handLimit(), key = [today, JSON.stringify(plan.weekLimit || null), JSON.stringify(plan.allowance || null), JSON.stringify(plan.goals || null), JSON.stringify(plan.yearly || null), JSON.stringify(plan.targets), JSON.stringify(plan.assigned), JSON.stringify(plan.priority || null), JSON.stringify(plan.fixed || null)].join('|');
+  const hand = handLimit(), key = [today, JSON.stringify(plan.weekLimit || null), JSON.stringify(plan.allowance || null), JSON.stringify(plan.goals || null), JSON.stringify(plan.yearly || null), JSON.stringify(plan.targets), JSON.stringify(plan.assigned), JSON.stringify(plan.priority || null), JSON.stringify(plan.fixed || null), JSON.stringify(plan.buildUp || null)].join('|');
   if (allowMemo && allowMemo.cache === cache && allowMemo.key === key) return allowMemo.v;
   const day = hand && Number.isInteger(hand.day) ? hand.day : SETTINGS.weekStartDay, buffer = allowBuffer();
   let start = weekStartOn(today, day);
@@ -3401,7 +3403,8 @@ function targetInfo(c, m, row) {
 // Weekly targets, this month only: a finished week never asks for money, and only the week you're in is asked for. Nice to have (priority 3)
 // categories top up to the weekly amount (money left over counts); the rest (groceries, fuel) get the full weekly amount every week and build up.
 // An overspend never adds to it. Monthly targets on Nice to have categories top up too.
-const isTopUpCat = c => priorityOf(c) === 3;
+// "Builds up" is a per-category switch (plan.buildUp[c]); until it's set, nice-to-have categories top up and the rest build up
+const isTopUpCat = c => { const b = (plan.buildUp || {})[c]; return typeof b === 'boolean' ? !b : priorityOf(c) === 3; };
 function weeksLeft(m, day) {
   const cur = weekStartOn(todayStr(), day), end = addDays(addMonths(m, 1) + '-01', -1), starts = [];
   for (let d = m + '-01'; d <= end; d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day && d >= cur) starts.push(d);
@@ -4779,6 +4782,8 @@ function categoryHTML(c, m, P, row, t) {
       <option value="bills" ${tg.type === 'bills' ? 'selected' : ''}>Follow my bills (changes by itself)</option>
     </select>
     <p class="muted" id="tgHelp" style="font-size:13px;margin:6px 0 0"></p>
+    <label id="tgBuildWrap" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;cursor:pointer"><input type="checkbox" id="tgBuild" style="margin-top:3px"${isTopUpCat(c) ? '' : ' checked'}>
+      <span><b>Builds up</b><br><span class="muted" style="font-size:13px">Ticked: the full amount goes in every week or month, on top of what's left. Unticked: it only tops up to the amount, so leftovers count.</span></span></label>
     <div style="display:grid;gap:8px;margin-top:8px">
       <label id="tgAmtWrap">Amount $ <input type="number" id="tgAmt" min="0" step="0.01" style="width:120px" value="${tg.amount || ''}"></label>
       <label id="tgDayWrap">Week starts on <select id="tgDay">${WEEKDAYS.map((d, i) => `<option value="${i}" ${(Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay) === i ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
@@ -4825,9 +4830,13 @@ function bindCategory(c, m, P, row) {
   const upd = () => {
     const v = $('#tgType').value;
     $('#tgAmtWrap').style.display = v && v !== 'bills' ? '' : 'none'; $('#tgDateWrap').style.display = v === 'byDate' ? '' : 'none';
-    $('#tgDayWrap').style.display = v === 'weekly' ? '' : 'none'; $('#tgHelp').textContent = help[v] || '';
+    $('#tgDayWrap').style.display = v === 'weekly' ? '' : 'none'; $('#tgBuildWrap').style.display = v === 'weekly' || v === 'monthly' ? '' : 'none'; $('#tgHelp').textContent = help[v] || '';
   };
   $('#tgType').onchange = upd; upd();
+  $('#tgBuild').onchange = e => {
+    plan.buildUp = {...(plan.buildUp || {}), [c]: e.target.checked};
+    savePlan(); renderBudgets();
+  };
   $('#prioSel').onchange = () => { setPriority(c, +$('#prioSel').value || 0); renderBudgets(); };
   if ($('#barSel')) $('#barSel').onchange = e => {
     plan.barView = {...(plan.barView || {})};
