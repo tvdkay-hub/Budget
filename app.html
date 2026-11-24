@@ -3543,9 +3543,13 @@ function ageOfMoney(until) {
 
 // Where to take money from when covering an overspent category
 function bestSource(P, row, need, exclude) {
-  if (row.rta >= need) return '__RTA';
-  const c = P.budgetCats.filter(x => x !== exclude).sort((a, b) => row.available[b] - row.available[a])[0];
-  return c && row.available[c] > 0 ? c : '__RTA';
+  // Everyday categories first (largest balance), then Ready to Assign, then other groups; never savings
+  const grp = Object.fromEntries(allCats().map(([n, , g]) => [n, g]));
+  const best = ok => P.budgetCats.filter(x => x !== exclude && ok(grp[x]) && row.available[x] > 0).sort((a, b) => row.available[b] - row.available[a])[0];
+  const e = best(g => g === 'Everyday');
+  if (e) return e;
+  if (row.rta > 0) return '__RTA';
+  return best(g => g !== 'Savings goals' && g !== 'Transfers & savings') || '__RTA';
 }
 
 function openMove(m, P, {from = '__RTA', to = '', amt = ''} = {}) {
