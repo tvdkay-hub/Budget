@@ -1947,6 +1947,7 @@ function ownBill(a, from) {
   if (b.payee) { const hist = paidTo(payeeTest(b)); for (let n = 0; n < 30 && pausedThen(b, dueOn(b, b.k0), hist); n++) b.k0++; } // its next one is after the break
   b.next = a.rhythm === 'once' ? a.date : dueOn(b, b.k0);
   b.done = a.rhythm === 'once' && (a.date < from || !!a.email && paidFor(a)); // a one-off that's been and gone, or a bill from your email that's been paid
+  if (a.rhythm !== 'once' && /^\d{4}-\d{2}-\d{2}$/.test(a.until || '')) { b.until = a.until; if (b.next > a.until) b.done = true; } // a bill that stops on a day (its old amount, before a new one starts)
   // Paying back a set amount (like money you owe someone): everything paid to its payee counts, and it stops once it's all paid
   if (a.payBack && a.payBack.total > 0 && b.payee) {
     const hist = paidTo(payeeTest(b)).filter(p => !a.payBack.since || p.date >= a.payBack.since);
@@ -1966,10 +1967,14 @@ function ownBill(a, from) {
 }
 // Bills from your email (see "Bills from your email" further down). Each company's words find its usual payments.
 // rhythm: for a bill that varies too much to be spotted in your transactions
-const EMAIL_BILLERS = {Mercury: {words: /mercury/i, cat: 'Utilities', rhythm: 'monthly'}, '2degrees': {words: /2 ?degrees/i, cat: 'Phone & Internet'}, 'CCC rates': {words: /rates|christchurch c/i, cat: 'Rates'}};
-const sameBiller = (biller, name) => !!biller && (EMAIL_BILLERS[biller] ? EMAIL_BILLERS[biller].words.test(name) : name.toLowerCase().includes(biller.toLowerCase()));
+const EMAIL_BILLERS = {Mercury: {words: /mercury/i, cat: 'Utilities', rhythm: 'monthly'}, '2degrees': {words: /2 ?degrees/i, cat: 'Phone & Internet'}, 'CCC rates': {words: /rates|christchurch c/i, cat: 'Rates'},
+  'AA Insurance': {words: /aa insurance|aa ins\b/i, cat: 'Insurance'}};
+// A rego reminder is one bill per car ("Rego KNW326"): it matches your bill with that plate in its name, and any payment to NZ Transport Agency.
+// Any amount counts as paid, because you choose how many months to pay for.
+const billerDef = biller => EMAIL_BILLERS[biller] || (/^Rego [A-Z0-9]{1,7}$/i.test(biller || '') ? {words: new RegExp(biller.slice(5) + '|nz transport ag|nzta|waka kotahi', 'i'), cat: 'Fuel & Transport', anyAmount: true} : null);
+const sameBiller = (biller, name) => { const d = !!biller && billerDef(biller); return !!biller && (d ? d.words.test(name) : name.toLowerCase().includes(biller.toLowerCase())); };
 // Paid once a payment of exactly that amount shows up, from a few days before the email to a month after the due date
-const paidFor = a => txns.some(t => t.amount < 0 && Math.abs(t.amount + a.amount) < 0.011 && !isInternal(t) && (!a.biller || sameBiller(a.biller, searchText(t))) // same amount AND the payment is to that biller
+const paidFor = a => txns.some(t => t.amount < 0 && (Math.abs(t.amount + a.amount) < 0.011 || !!(billerDef(a.biller) || {}).anyAmount) && !isInternal(t) && (!a.biller || sameBiller(a.biller, searchText(t))) // same amount AND the payment is to that biller
   && t.date >= addDays(a.received || a.date, a.received ? -3 : -45) && t.date <= addDays(a.date, 30));
 // A bill from your email replaces the usual estimate for that payment: the one due around the same time
 function skipEmailed(b, emailed) {
@@ -5821,7 +5826,7 @@ function renderData() {
     <div class="card" id="shareCard"${ONLINE && FAMILY ? '' : ' hidden'}></div>
     <div class="card" id="phoneCard"${ONLINE || !FAMILY ? ' hidden' : ''}></div>
     <div class="card" id="haCard"${!FAMILY ? ' hidden' : ''}></div>
-    <div class="card" id="emailCard"${FAMILY ? '' : ' hidden'}></div>
+    <div class="card" id="emailCard"></div>
     ${Object.keys(deletedTx).length ? `<div class="card" id="delCard"><h2>Deleted transactions (${Object.keys(deletedTx).length})</h2>
       <p class="muted" style="margin-top:0">Ones you deleted on the Transactions tab, and older copies the bank later re-dated or re-worded. They stay deleted even if you load the same bank file again.</p>
       <table>${Object.entries(deletedTx).sort((a, b) => a[1].t.date < b[1].t.date ? 1 : -1).map(([id, d]) => `<tr><td style="white-space:nowrap">${dateLabel(d.t.date)}</td><td>${esc(payeeName(d.t))}${d.replaced ? ' <span class="muted" style="font-size:12px">· replaced by the bank\'s newer copy</span>' : ''}</td>
@@ -6266,16 +6271,45 @@ function dueSoonHTML(bills) {
 // New bills your Gmail script found, waiting for you to add or ignore (not ones already paid, long past, or already added)
 function emailPending() {
   const today = todayStr(), seen = billCfg.email || {};
-  return emailInbox.filter(e => !(e.id in seen) && e.received >= addDays(today, -60) && !(e.ok && (e.due < addDays(today, -14)
-    || paidFor({amount: e.amount, received: e.received, date: e.due})
-    || billCfg.added.some(a => a.rhythm === 'once' && a.date === e.due && Math.abs(a.amount - e.amount) < 0.011))));
+  return emailInbox.filter(e => !(e.id in seen) && (e.kind === 'change' // a new amount (an insurance renewal): until you've updated the bill, or well after it started
+    ? e.received >= addDays(today, -120) && !(e.ok && (e.due < addDays(today, -45) || changeDone(e)))
+    : e.received >= addDays(today, -60) && !(e.ok && (e.due < addDays(today, -14)
+      || paidFor({amount: e.amount, received: e.received, date: e.due, ...((billerDef(e.biller) || {}).anyAmount ? {biller: e.biller} : {})})
+      || billCfg.added.some(a => a.rhythm === 'once' && a.date === e.due && Math.abs(a.amount - e.amount) < 0.011)))));
+}
+const changeDone = e => billCfg.added.some(a => a.rhythm !== 'once' && a.date === e.due && Math.abs(a.amount - e.amount) < 0.011);
+const ebName = e => e.biller + (e.make ? ` (${e.make[0]}${e.make.slice(1).toLowerCase()})` : '') + (e.kind === 'change' && e.type ? ' – ' + e.type.toLowerCase() : ''); // "Rego KNW326 (Toyota)", "AA Insurance – contents"
+// The regular bills a new amount could be for, the best match first (by Car / Contents / House in its name)
+function changeBills(e) {
+  const list = allBills().filter(b => b.out && b.rhythm !== 'once' && !b.done && !b.until && sameBiller(e.biller, b.name));
+  const t = {Car: /car|motor|vehicle/i, Contents: /contents/i, Home: /house|home/i, House: /house|home/i}[e.type];
+  return t ? [...list.filter(b => t.test(b.name)), ...list.filter(b => !t.test(b.name))] : list;
+}
+// Update a regular bill to its new amount: the old amount carries on until the day before, then the new one from that day
+function applyEmailChange(id, key) {
+  const e = emailInbox.find(x => x.id === id);
+  if (!e || !e.ok || e.kind !== 'change') return;
+  const b = key ? allBills().find(x => x.key === key) : null, before = addDays(e.due, -1), stamp = Date.now().toString(36);
+  const name = b ? b.name : ebName(e), cat = (b && b.cat) || (billerDef(e.biller) || {}).cat || '';
+  let added = billCfg.added;
+  if (b && b.id) added = added.map(a => a.id === b.id ? {...a, until: before} : a); // your own bill: stops the day before
+  else if (b && b.next <= before) added = [...added, {id: 'bill-' + stamp + 'o', name, amount: b.amount, out: true, rhythm: b.rhythm, date: b.next, cat, until: before}]; // one found in your transactions: kept at the old amount until then
+  added = [...added, {id: 'bill-' + stamp + 'n', name, amount: e.amount, out: true, rhythm: e.rhythm || 'monthly', date: e.due, cat}];
+  billCfg.added = added; billCfg.email = {...billCfg.email, [e.id]: 'added'};
+  store.set('bills', billCfg); toast(`${name}: ${fmt2(e.amount)} from ${dayLabel(e.due)}`); render();
 }
 function emailBillsHTML() {
   const list = emailPending();
   if (!list.length) return '';
   const mail = e => /^https:\/\/mail\.google\.com\//.test(e.link) ? ` · <a href="${esc(e.link)}" target="_blank" rel="noopener" style="color:var(--series-1)">open the email</a>` : '';
-  return `<div style="margin-bottom:10px"><h3 style="margin:0 0 4px">${list.length === 1 ? 'A new bill' : list.length + ' new bills'} from your email</h3>` + list.map(e => e.ok
-    ? `<div class="bill"><div class="row" style="justify-content:space-between;gap:8px"><span><b>${esc(e.biller)}</b> <span class="muted">due ${dayLabel(e.due)}</span></span>
+  const every = {weekly: 'a week', fortnightly: 'a fortnight', monthly: 'a month', quarterly: 'a quarter', yearly: 'a year'};
+  const change = e => { const c = changeBills(e); return `<div class="bill"><div class="row" style="justify-content:space-between;gap:8px"><span><b>${esc(ebName(e))}</b> <span class="muted">new amount from ${dayLabel(e.due)}</span></span>
+        <b>${fmt2(e.amount)} <span class="muted" style="font-weight:400">${every[e.rhythm] || ''}</span></b></div>
+      <div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap"><label class="muted" style="font-size:13px">For <select data-ebsel="${esc(e.id)}">${c.map(b => `<option value="${esc(b.key)}">${esc(b.name)} (now ${fmt2(b.amount)})</option>`).join('')}<option value="">a new bill</option></select></label>
+        <button type="button" class="btn sm primary" data-ebupd="${esc(e.id)}">Update</button><button type="button" class="btn sm" data-ebskip="${esc(e.id)}">Ignore</button></div>
+      <div class="muted" style="font-size:12px">Renewal emailed ${dayLabel(e.received)}${e.total ? ` · ${fmt2(e.total)} for the year` : ''}${mail(e)}. The old amount carries on until then.</div></div>`; };
+  return `<div style="margin-bottom:10px"><h3 style="margin:0 0 4px">${list.length === 1 ? 'A new bill' : list.length + ' new bills'} from your email</h3>` + list.map(e => e.ok && e.kind === 'change' ? change(e) : e.ok
+    ? `<div class="bill"><div class="row" style="justify-content:space-between;gap:8px"><span><b>${esc(ebName(e))}</b> <span class="muted">due ${dayLabel(e.due)}</span></span>
         <span class="row" style="gap:6px"><b>${fmt2(e.amount)}</b><button type="button" class="btn sm primary" data-ebadd="${esc(e.id)}">Add</button><button type="button" class="btn sm" data-ebskip="${esc(e.id)}">Ignore</button></span></div>
         <div class="muted" style="font-size:12px">Emailed ${dayLabel(e.received)}${mail(e)}</div></div>`
     : `<div class="bill"><div class="row" style="justify-content:space-between;gap:8px"><span><b>${esc(e.biller || 'A bill')}</b> <span class="muted">· couldn't read the amount or due date</span></span><button type="button" class="btn sm" data-ebskip="${esc(e.id)}">Ignore</button></div>
@@ -6285,11 +6319,11 @@ function addEmailBill(id) {
   const e = emailInbox.find(x => x.id === id);
   if (!e || !e.ok) return;
   const like = allBills().find(b => b.rhythm !== 'once' && b.out && b.cat && sameBiller(e.biller, b.name));
-  const cat = like ? like.cat : (EMAIL_BILLERS[e.biller] || {}).cat || '';
-  billCfg.added = [...billCfg.added, {id: 'email-' + e.id, name: e.biller, amount: e.amount, out: true, rhythm: 'once', date: e.due, cat, email: e.id, biller: e.biller, received: e.received,
+  const cat = like ? like.cat : (billerDef(e.biller) || {}).cat || '';
+  billCfg.added = [...billCfg.added, {id: 'email-' + e.id, name: ebName(e), amount: e.amount, out: true, rhythm: 'once', date: e.due, cat, email: e.id, biller: e.biller, received: e.received,
     ...((billCfg.outside || {})[e.biller] ? {outside: true} : {})}]; // this company's bills are paid with money from outside this budget
   billCfg.email = {...billCfg.email, [e.id]: 'added'};
-  store.set('bills', billCfg); toast(`Added ${e.biller}: ${fmt2(e.amount)} due ${dayLabel(e.due)}`); render();
+  store.set('bills', billCfg); toast(`Added ${ebName(e)}: ${fmt2(e.amount)} due ${dayLabel(e.due)}`); render();
 }
 // The forecast in one sentence: fine, cutting it fine, will go below $0, or needs a top-up from the offset
 function fcStatus(f) {
@@ -6528,6 +6562,7 @@ function billClick(e) {
   else if ('wiapply' in b.dataset) applyWhatIf();
   else if ('wiclear' in b.dataset) { whatIf = newWhatIf(); renderBills(); }
   else if ('ebadd' in b.dataset) addEmailBill(b.dataset.ebadd);
+  else if ('ebupd' in b.dataset) { const s = b.closest('.bill') && b.closest('.bill').querySelector('select[data-ebsel]'); applyEmailChange(b.dataset.ebupd, s ? s.value : ''); }
   else if ('ebskip' in b.dataset) { billCfg.email = {...billCfg.email, [b.dataset.ebskip]: 'ignored'}; store.set('bills', billCfg); toast('Ignored. Press Undo to bring it back.'); render(); }
 }
 let blEdit = null, blShown = '', blAdopt = null; // the bill you're changing (null when adding one), the due date first shown for it, and a spotted bill being made your own
@@ -7794,8 +7829,12 @@ const isoDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s :
 function cleanEmailBill(e) {
   e = e && typeof e === 'object' ? e : {};
   const amount = Number(e.amount);
+  const word = s => typeof s === 'string' && /^[A-Za-z][A-Za-z -]{0,19}$/.test(s) ? s : null, total = Number(e.total);
   const x = {id: String(e.id || ''), biller: e.biller ? String(e.biller).slice(0, 60) : null, amount: amount > 0 ? round2(amount) : null, due: isoDay(e.due),
-    received: isoDay(e.received) || todayStr(), subject: String(e.subject || '').slice(0, 200), link: String(e.link || '')};
+    received: isoDay(e.received) || todayStr(), subject: String(e.subject || '').slice(0, 200), link: String(e.link || ''),
+    budget: e.budget === 'personal' ? 'personal' : 'family', // which budget it's for (the Gmail script works it out; older files: family)
+    kind: e.kind === 'change' ? 'change' : 'bill', // 'change': a new amount for a regular bill from the due date (an insurance renewal)
+    make: word(e.make), type: word(e.type), rhythm: RHYTHMS.some(r => r[0] === e.rhythm) ? e.rhythm : 'monthly', total: total > 0 ? round2(total) : null};
   x.ok = !!(x.id && x.biller && x.amount && x.due);
   return x;
 }
@@ -7807,7 +7846,7 @@ async function readEmailBills(loud) {
       const d = JSON.parse(await f.text());
       if (!d || d.kind !== 'family-budget-email-bills' || !Array.isArray(d.bills)) throw new Error('not a bills file');
       const before = emailPending().map(e => e.id).join();
-      emailInbox = d.bills.map(cleanEmailBill).filter(e => e.id);
+      emailInbox = d.bills.map(cleanEmailBill).filter(e => e.id && e.budget === (FAMILY ? 'family' : 'personal')); // each budget sees only its own bills
       emailFileAt = f.lastModified; emailUpdated = new Date(d.updated || f.lastModified);
       if (emailPending().map(e => e.id).join() !== before) render();
     }
@@ -8729,7 +8768,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.b
   initFile();
   if (!ONLINE && FAMILY) initPhone(); // online, the PC looks after the phone summary
   if (FAMILY) initHa(); // Home Assistant is only reachable from home; online, Chrome asks once to allow the local network
-  if (FAMILY) initEmailBills(); // emailed bills, the phone summary and Home Assistant are for the family budget only
+  initEmailBills(); // emailed bills: both budgets read the same file, each sees its own (the phone summary and Home Assistant are family only)
 })();
 </script>
 </body>
