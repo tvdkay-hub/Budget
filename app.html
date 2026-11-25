@@ -1955,9 +1955,10 @@ function ownBill(a, from) {
     if (left < 0.005) b.done = true;
     else {
       const n = Math.ceil(left / b.amount - 1e-9);
-      const all = paidTo(payeeTest(b));
+      const all = paidTo(payeeTest(b)), last = b.payBack.lastPaid;
       let k = b.k0, d = b.next;
-      for (let i = 0; i < n && k < b.k0 + 1000; k++) { d = dueOn(b, k); if (!pausedThen(b, d, all)) i++; }
+      // a due date the last payment already covers (like one you entered by hand before the bank file has it) is paid, not still to come
+      for (let i = 0; i < n && k < b.k0 + 1000; k++) { d = dueOn(b, k); if (!pausedThen(b, d, all) && !(last && d <= addDays(last, 3))) i++; }
       b.until = d; b.lastAmount = round2(left - (n - 1) * b.amount); b.payBack.n = n; b.yearOver = Math.max(0, left); // its "a year" is what's left
     }
   }
