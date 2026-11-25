@@ -3387,7 +3387,7 @@ function parseAmount(str, current) {
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 // Spend check: a strip of blocks on a Budget row, one per week (or fortnight) that starts in the month, each showing what was spent
 // in it: green within the limit, red over, grey with no limit. plan.spendCheck[c] = {every: 'off'|'weekly'|'fortnightly', day, from, limit}.
-// Every spending category shows weekly blocks unless you turn it off. No limit set: the target sets it (weekly as is, monthly spread out).
+// Every spending category shows weekly blocks unless you turn it off. No limit set: a weekly target sets it; anything else shows grey blocks.
 // plan.spendAdj[c][start] = money added to (or taken off) that week's figure by hand, e.g. groceries paid from another card.
 // It only changes the blocks, not the budget.
 const spendCheckOf = c => {
@@ -3398,7 +3398,9 @@ const spendCheckOf = c => {
   const len = every === 'weekly' ? 7 : 14, from = s && /^\d{4}-\d{2}-\d{2}$/.test(s.from || '') ? s.from : null;
   const day = s && Number.isInteger(s.day) ? s.day : Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay;
   let limit = s && s.limit > 0 ? s.limit : null;
-  if (limit == null && tg.amount > 0) limit = tg.type === 'weekly' ? tg.amount * len / 7 : tg.type === 'monthly' ? tg.amount * 12 * len / 365.25 : null;
+  // Only a weekly target sets a limit by itself: a monthly one is usually a bill paid once a month, so splitting it into weeks
+  // would turn the week it's paid red. Set a limit by hand for a monthly category you want checked each week.
+  if (limit == null && tg.amount > 0 && tg.type === 'weekly') limit = tg.amount * len / 7;
   return {every, len, day, from, limit: limit != null ? round2(limit) : null, auto: s && s.limit > 0 ? false : limit != null};
 };
 let _spendDays = null; // spending per category per day around the month on show; cleared on each Budget render
