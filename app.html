@@ -6213,7 +6213,7 @@ function trendYears(m, spent) {
 
 // ---------- Bills tab: cash-flow forecast and regular payments ----------
 let fcOpen = null; // which pay fortnights in the forecast list are open: {day: today, set of start days}
-let fcEveryday = true, regShow = 'out'; // include everyday spending in the forecast? which payments the list shows
+let fcEveryday = localStorage.getItem('budget-fc-everyday') !== '0', regShow = 'out'; // include everyday spending in the forecast? (this device only, on unless you turned it off) which payments the list shows
 const shortDay = d => { const [y, mo, da] = d.split('-').map(Number); return new Date(y, mo - 1, da).toLocaleDateString('en-NZ', {day: 'numeric', month: 'short'}); };
 const isSubCat = c => !!c && (/subscri/i.test(c) || (plan.custom.find(x => x.name === c) || {}).from === 'Subscriptions & Apps');
 // The Bills tab opens on a few big buttons; each one opens a single card with a Back button
@@ -6388,8 +6388,7 @@ function forecastHTML(bills) {
   if (of && of.short) h += `<p style="font-size:13px;margin:8px 0 0"><span style="color:var(--bad)">✕</span> <b style="color:var(--bad)">The offset will be about ${fmt(of.short.amount)} short on ${dayLabel(of.short.date)}</b>, when ${esc(nameList(of.short.what))} come${of.short.what.length === 1 ? 's' : ''} out of it. Move a top-up to after your next pay, or spend less before then.</p>`; // important, so it stays out of the folded part
   if (f.end < addDays(today, -3)) h += `<p style="font-size:13px;margin:6px 0 0"><span style="color:var(--warn)">!</span> Your newest loaded transaction is from ${dateLabel(f.end)}. Load newer ones on the Load data tab for a better forecast.</p>`;
   h += `<details class="moredet"><summary>More details and settings</summary>`;
-  h += `<label class="muted" style="display:block;font-size:13px;margin-top:8px"><input type="checkbox" id="fcDaily" ${fcEveryday ? 'checked' : ''}> Include everyday spending like groceries and fuel: about ${fmt(f.typical)} in a typical week lately</label>
-    <p class="muted" style="font-size:13px;margin:6px 0 0">Starts from ${fmt2(f.start)}, the balance your budget works out for ${dateLabel(f.end)}. Then it takes off the regular payments below and adds your pay and other regular money in${fcEveryday ? ', and takes off a little everyday spending each day' : ''}. One-off costs aren't included, so keep some spare.</p>`
+  h += `<p class="muted" style="font-size:13px;margin:8px 0 0">Starts from ${fmt2(f.start)}, the balance your budget works out for ${dateLabel(f.end)}. Then it takes off the regular payments below and adds your pay and other regular money in${fcEveryday ? ', and takes off a little everyday spending each day' : ''}. One-off costs aren't included, so keep some spare.</p>`
     + (fcEveryday ? `<p class="muted" style="font-size:13px;margin:6px 0 0">Everyday spending is your middle week of the last 12, adjusted for the time of year once a year of history is loaded (if, say, December was 15% or more dearer than usual last year, December is here too). The "runs high" figure uses one of your dearer weeks instead: the one three-quarters of the way up.</p>` : '');
   if (FAMILY) { // top-ups from the offset: only when needed, and the offset's other job (the rates)
     const fo = f.fromOffset;
@@ -6439,7 +6438,9 @@ function forecastHTML(bills) {
   }
   // Wide screens: the chart on the left, the list beside it (scrolling in its own box). Narrow screens: one under the other.
   return `<div class="fcgrid"><div>${h}</div>
-    <div><h2>What's coming up (${f.events.length})</h2><div class="fcscroll"><table>
+    <div><h2>What's coming up (${f.events.length})</h2>
+    <label class="muted" style="display:block;font-size:13px;margin:-4px 0 8px" title="Off: just your pay and bills. On: also takes off a typical day's groceries, fuel and so on, so the balance is closer to real life."><input type="checkbox" id="fcDaily" ${fcEveryday ? 'checked' : ''}> Include everyday spending like groceries and fuel (about ${fmt(f.typical)} a week)</label>
+    <div class="fcscroll"><table>
     <thead><tr><th>Due</th><th>What</th><th class="num">Amount</th><th class="num fcbalc">Balance that day</th></tr></thead>
     ${rows || '<tbody><tr><td colspan="4" class="muted">No regular payments due.</td></tr></tbody>'}</table></div></div></div>`;
 }
@@ -8284,7 +8285,7 @@ $('#tab-bills').addEventListener('click', e => {
   billClick(e);
 });
 $('#tab-bills').addEventListener('change', e => {
-  if (e.target.id === 'fcDaily') { fcEveryday = e.target.checked; renderBills(); }
+  if (e.target.id === 'fcDaily') { fcEveryday = e.target.checked; localStorage.setItem('budget-fc-everyday', fcEveryday ? '1' : '0'); renderBills(); }
   else if (e.target.id === 'fcFloor') { // the least to keep in the account before a top-up from the offset
     const v = parseFloat(String(e.target.value).replace(/[$,\s]/g, ''));
     if (v > 0) plan.topUp = {floor: round2(v)}; else delete plan.topUp;
