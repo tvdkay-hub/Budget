@@ -31,7 +31,12 @@ main { padding: 20px 24px; max-width: 2200px; margin: 0 auto; }
 dialog.askdlg { max-width: min(440px, 92vw); }
 dl.words dt { font-weight: 600; margin-top: 10px; } dl.words dd { margin: 2px 0 0; color: var(--text-secondary); }
 #nav .nicon { display: none; } /* the tab icons only show on phones */
-#navMore, #moreSheet { display: none; } /* the More button and its sheet only show on phones */
+/* The bar holds Budget, Transactions and More; Overview, Bills, Shops, Net worth and Load data are under More (phones and wide screens) */
+#nav button[data-tab="overview"], #nav button[data-tab="bills"], #nav button[data-tab="shops"], #nav button[data-tab="worth"], #nav button[data-tab="data"] { display: none; }
+#moreSheet { display: none; }
+#moreSheet:not([hidden]) { display: flex; flex-direction: column; position: fixed; z-index: 60; min-width: 160px; background: var(--surface-1); border: 2px solid var(--ink); border-radius: 12px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+#moreSheet button { text-align: left; padding: 8px 14px; border: 0; background: none; border-radius: 8px; }
+#moreSheet button.active { font-weight: 700; color: var(--ink); background: var(--tint, transparent); }
 .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
 .card h2 { font-size: 15px; margin: 0 0 12px; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
@@ -153,6 +158,9 @@ table.plan.lite .cmeta { display: flex; }
 .wkb.over { background: color-mix(in srgb, var(--bad) 26%, transparent); }
 .wkb.nolim { background: color-mix(in srgb, var(--text-muted) 15%, transparent); }
 .wkb.fut { border: 1px dashed var(--border); color: var(--text-muted); }
+.wkb.fut.due { border-color: var(--ink); color: var(--ink); } /* a bill comes out that week */
+.wkb .wkduew { font-style: normal; font-weight: 400; font-size: 10px; }
+.wkb small.wkdueln { color: var(--ink); font-weight: 600; }
 .wkb.cur { box-shadow: inset 0 0 0 2px var(--ink); }
 .wprog .tbar { flex: 0 0 110px; }
 .wprog b { font-weight: 600; color: var(--text-secondary); }
@@ -244,6 +252,8 @@ tr.tdrow:hover td, tr.tdrow:focus-visible td, tr.shoprow:hover td, tr.shoprow:fo
 button.tilebtn { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; min-height: 104px; }
 button.tilebtn:hover, button.tilebtn:focus-visible { border-color: var(--series-1); }
 .biltiles { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.budtiles { margin-bottom: 8px; } .budtiles .tile[data-go] { cursor: pointer; } /* Budget tab: the three "where you stand" tiles */
+.budlinks { margin: 0 0 12px; }
 button.backbtn { display: block; width: 100%; max-width: 360px; margin: 0 0 12px; padding: 14px 18px; font: inherit; font-size: 17px; font-weight: 600; text-align: left; color: var(--text-primary, inherit); background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
 button.backbtn:hover, button.backbtn:focus-visible { border-color: var(--series-1); }
 details.moredet { margin-top: 10px; }
@@ -608,8 +618,7 @@ body.printing #report .btn.primary { background: #2a78d6; color: #fff; }
   #nav button { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0 6px; border-radius: 0; font-size: 10.5px; line-height: 1.2; position: relative; }
   #nav button.active { background: none; color: #000; font-weight: 700; box-shadow: inset 0 3px 0 var(--ink); } /* e-ink: a black bar on top of the chosen tab */
   #nav .nicon { display: block; width: 22px; height: 22px; }
-  /* Four main tabs and More (Shops, Net worth, Load data), so every tab is big enough to tap */
-  #nav button[data-tab="shops"], #nav button[data-tab="worth"], #nav button[data-tab="data"] { display: none; }
+  /* Budget, Transactions and More (the rest), so every tab is big enough to tap */
   #nav #navMore { display: flex; }
   #moreSheet:not([hidden]) { display: flex; flex-direction: column; position: fixed; right: 8px; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 60; min-width: 160px; background: var(--surface-1); border: 2px solid var(--ink); border-radius: 12px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
   #moreSheet button { text-align: left; min-height: 44px; padding: 10px 14px; font-size: 15px; border: 0; background: none; border-radius: 8px; }
@@ -746,8 +755,8 @@ main th.sort-desc::after { content: ' ▼'; font-size: .75em; }
   <h1><select id="profileSel" hidden aria-hidden="true" tabindex="-1"><option value="family">Family Budget</option><option value="personal">Personal Budget</option></select>
     <button type="button" id="profSwitch" role="switch" aria-checked="false" aria-label="Personal budget (off = Family budget)" title="Slide to switch between your Family and Personal budgets"><span class="pthumb"></span><span class="popt pf">Family</span><span class="popt pp">Personal</span></button></h1>
   <nav id="nav">
-    <button data-tab="overview" class="active"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="9" rx="1"/><rect x="13" y="4" width="7" height="5" rx="1"/><rect x="4" y="15" width="7" height="5" rx="1"/><rect x="13" y="11" width="7" height="9" rx="1"/></svg>Overview</button>
-    <button data-tab="budgets"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v8h8"/></svg>Budget</button>
+    <button data-tab="overview"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="9" rx="1"/><rect x="13" y="4" width="7" height="5" rx="1"/><rect x="4" y="15" width="7" height="5" rx="1"/><rect x="13" y="11" width="7" height="9" rx="1"/></svg>Overview</button>
+    <button data-tab="budgets" class="active"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v8h8"/></svg>Budget</button>
     <button data-tab="bills"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Bills</button>
     <button data-tab="transactions"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.5M4.5 12h.5M4.5 18h.5"/></svg>Transactions<span class="nb"></span></button>
     <button data-tab="shops"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>Shops</button>
@@ -755,7 +764,7 @@ main th.sort-desc::after { content: ' ▼'; font-size: .75em; }
     <button data-tab="data"><svg class="nicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>Load data</button>
     <button type="button" id="navMore" class="navmore" aria-haspopup="true" aria-expanded="false" aria-controls="moreSheet"><svg class="nicon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg><span class="mlbl">More</span></button>
   </nav>
-  <div id="moreSheet" role="menu" hidden><button type="button" role="menuitem" data-tab="shops">Shops</button><button type="button" role="menuitem" data-tab="worth">Net worth</button><button type="button" role="menuitem" data-tab="data">Load data</button></div>
+  <div id="moreSheet" role="menu" hidden><button type="button" role="menuitem" data-tab="overview">Overview</button><button type="button" role="menuitem" data-tab="bills">Bills</button><button type="button" role="menuitem" data-tab="shops">Shops</button><button type="button" role="menuitem" data-tab="worth">Net worth</button><button type="button" role="menuitem" data-tab="data">Load data</button></div>
   <div style="margin-left:auto" class="row">
     <button class="btn sm primary" id="addTxBtn" title="Add a transaction by hand, like cash or a card payment the bank hasn't sent yet" aria-label="Add a transaction"><span>+</span><span class="lbl"> Add</span></button>
     <button class="btn sm" id="reportBtn" title="A one-page summary of a month or a year, to print or save as a PDF">Print report…</button>
@@ -3062,6 +3071,70 @@ document.addEventListener('toggle', e => { if (e.target.id === 'plainMore') plai
 // ---------- Views ----------
 function selectedMonth() { return $('#monthSel').value; }
 
+// A number tile (Overview and the Budget tab's strip): a number and one short line under it. The longer explanation shows on hover.
+// go: where a click on the tile takes you (budgets, bills, tx, tx:out, tx:in, or bill:<key> for a pay's bill box)
+const TILE_GO = {'Left to spend this week': 'ovview:pace', 'Balance': 'reconcile', 'Ready to Assign': 'budgets', 'Spent so far this month': 'tx:out', 'Spending': 'tx:out', 'Money in': 'tx:in', 'Left over': 'budgets', 'Next money in': 'billview:in', 'Lowest balance coming up': 'billview:fc', 'Top-up needed': 'billview:fc', 'Fun money this week': 'budgets'};
+const NEUTRAL = {'Left to spend this week': 'teal', 'Balance': 'teal', 'Ready to Assign': 'sky', 'Spent so far this month': 'leaf', 'Spending': 'sky', 'Money in': 'leaf', 'Left over': 'sky', 'Next money in': 'leaf', 'Lowest balance coming up': 'teal'}; // tiles with no good/warn/bad status still get a colour
+const ovTile = (label, value, sub, color, tip, go = TILE_GO[label]) => `<div class="tile tone-${/^(good|warn|bad)$/.test(color) ? color : NEUTRAL[label] || 'teal'}"${tip ? ` data-tip="${esc(tip)}"` : ''}${go ? ` data-go="${esc(go)}" tabindex="0" role="button"` : ''}><div class="label">${label}${tip ? infoBtn(tip) : ''}</div><div class="value"${color ? ` style="color:var(--${color})"` : ''}>${value}</div><div class="sub">${sub}</div></div>`;
+// The three "where you stand" tiles, the same on the Budget tab and the Overview: what's left to spend this week, the next money in,
+// and the lowest balance coming up (or a top-up from the offset, when one is needed within 2 weeks). f = this month's forecast.
+function nowTiles(f, wa = weekAllowance()) {
+  const tile = ovTile;
+  const nx = f.events.find(e => e.amount > 0 && e.date > f.today), nxList = nx ? f.events.filter(e => e.date === nx.date && e.amount > 0) : [], nxIn = nxList.reduce((s, e) => s + e.amount, 0), nd = nx ? daysBetween(f.today, nx.date) : 0;
+  // Fixed costs (like the mortgage) due from that pay until the one after: already spoken for, so the tile also shows what's left
+  const nx2 = nx && f.events.find(e => e.amount > 0 && e.date > nx.date), until = nx2 ? nx2.date : nx ? addDays(nx.date, 14) : '';
+  const nxFixed = nx ? f.events.filter(e => e.amount < 0 && !e.outside && e.cat && isFixed(e.cat) && e.date >= nx.date && e.date < until) : [];
+  const nxFx = -nxFixed.reduce((s, e) => s + e.amount, 0);
+  const tw = topUpWarn(f); // a top-up from the offset coming up (family budget)
+  const of = offsetForecast(f), ofShort = of && of.short && daysBetween(f.today, of.short.date) <= 14; // and what's left to draw in the offset
+  const ofTip = of ? `<br>${esc(of.name)}: ${fmt2(of.now)} available to draw now.` + (of.short ? ` <b>About ${fmt(of.short.amount)} short on ${dayLabel(of.short.date)}</b>, when ${esc(nameList(of.short.what))} come${of.short.what.length === 1 ? 's' : ''} out.` : ` Lowest about ${fmt(of.low.avail)} around ${shortDay(of.low.date)}.`) : '';
+  // The one number to look at first: what's left of this week's allowance for everything that isn't a bill
+  const left = wa ? tile('Left to spend this week', fmt(Math.max(0, wa.left)), wa.amount <= 0 ? `nothing spare: tightest ${shortDay(wa.pinch.date)}` : `of ${fmt(wa.amount)} · ${wa.daysLeft} day${wa.daysLeft === 1 ? '' : 's'} to go`,
+      wa.left < 0 || wa.amount <= 0 ? 'bad' : wa.left < wa.amount * 0.2 ? 'warn' : 'good',
+      `You can spend about <b>${fmt(wa.amount)}</b> this week (${shortDay(wa.start)} to ${shortDay(wa.end)}) on things that aren't bills. You've spent ${fmt2(wa.spent)} so far, so <b>${wa.left >= 0 ? fmt2(wa.left) + ' is left' : fmt2(-wa.left) + ' over'}</b>.`
+      + `<br>How it's worked out: your balance, less every bill coming up, less money already set aside (${wa.goals.saved > 0.005 ? 'goals ' + fmt(wa.goals.saved) : 'goals $0'}${wa.held.list.length ? '; ' + esc(nameList(wa.held.list.map(x => `${x.c} ${fmt(x.amount)}`))) : ''}), less a ${fmt(wa.buffer)} "keep at least" amount. What's left is spread evenly over the weeks until the tightest day (${shortDay(wa.pinch.date)}).`
+      + `<br>Tap to change the "keep at least" amount or set a cap.`) : '';
+  const next = nx ? tile('Next money in', fmt(nxIn), `${dayLabel(nx.date)} · in ${nd} day${nd === 1 ? '' : 's'}`
+      + (nxFx > 0.5 ? `<div class="prows">${prow('After fixed costs', fmt(nxIn - nxFx))}</div>` : ''), '',
+    nxList.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join('<br>')
+      + (nxFx > 0.5 ? `<br>Less fixed costs before ${nx2 ? 'the pay after' : 'two weeks on'} (${shortDay(until)}): ` + nxFixed.map(e => `${esc(e.name)} ${fmt2(-e.amount)} on ${shortDay(e.date)}`).join(', ')
+        + `<br>Left for everything else: ${fmt2(nxIn - nxFx)}` : '')) : '';
+  const low = tw && tw.level // a top-up from the offset within 2 weeks: orange from a week out, red the day before
+    ? tile('Top-up needed', fmt(tw.amount), `from the offset by ${dayLabel(tw.date)} · ${tw.days ? `in ${tw.days} day${tw.days === 1 ? '' : 's'}` : 'today'}`
+        + (ofShort ? `<div class="prows">${prow('Offset short ' + shortDay(of.short.date), fmt(of.short.amount), 'bad')}</div>` : ''), ofShort ? 'bad' : tw.level === 'note' ? '' : tw.level,
+      `Without it, your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.<br>This is just enough to stay above ${fmt(f.floor)} until the next money in, rounded up to $50.`
+      + (f.topups.length > 1 ? '<br>Later: ' + f.topups.slice(1).map(t => `${fmt(t.amount)} by ${shortDay(t.date)}`).join(', ') : '')
+      + (f.fromOffset.outside > 0.005 ? `<br>The offset also pays ${fmt2(f.fromOffset.outside)} of bills in the next 6 weeks (like the rates).` : '') + ofTip)
+    : tile('Lowest balance coming up', fmt(f.low.bal), `around ${dayLabel(f.low.date)}` + (f.topups.length ? ` · includes a ${fmt(f.topups[0].amount)} top-up from the offset by ${shortDay(f.topups[0].date)}` : '')
+        + (ofShort ? `<div class="prows">${prow('Offset short ' + shortDay(of.short.date), fmt(of.short.amount), 'bad')}</div>` : ''), f.low.bal < 0 || ofShort ? 'bad' : f.low.bal < Math.max(100, f.typical) && !f.topups.length ? 'warn' : '',
+      `Your account's expected lowest point in the next 6 weeks${f.low.bal < 0 ? ' (overdrawn)' : ''}, counting bills, regular money in${fcEveryday ? ' and typical everyday spending' : ''}.`
+      + (f.topups.length ? `<br>That counts a top-up from the offset of ${fmt(f.topups[0].amount)} by ${dayLabel(f.topups[0].date)}, because without it your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.` : '')
+      + (() => { const on = f.events.filter(e => e.date === f.low.date && !e.outside); return on.length ? `<br>That day: ${on.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join(', ')}.` : `<br>Nothing is due that day: it's the low point after the bills and everyday spending before it.`; })() + ofTip
+      + (fcEveryday ? '<br>The upcoming rows on the Transactions tab leave out everyday spending, so they show a higher balance.' : ''));
+  return {left, next, low};
+}
+// The Overview, Savings goals, Paying back and Card pay-off buttons as small buttons on the Budget tab (each opens that card; Back comes back to Budget)
+function budgetLinksHTML() {
+  const owed = allBills().filter(x => x.payBack && !x.done), g = goalList().length, cards = poCards();
+  const b = (go, label, value) => `<button type="button" class="btn sm" data-budgo="${go}">${label}${value ? ` <b>${value}</b>` : ''}</button>`;
+  return `<div class="btnlist budlinks">${[
+    b('ovview:goals', 'Savings goals', g ? String(g) : ''),
+    payBackHTML() ? b('ovview:payback', 'Paying back', owed.length ? fmt(owed.reduce((s, x) => s + (x.payBack.left || 0), 0)) : 'done') : '',
+    cards.length ? b('ovview:cardpay', 'Card pay-off', fmt(cards.reduce((t, a) => t + Math.max(0, -(acctBalance(a.id, dataEnd()) || 0)), 0)) + ' owed') : '',
+  ].join('')}</div>`;
+}
+// The top of the Budget tab, this month only: the three "where you stand" tiles and links to goals and paying back
+function budgetTopHTML(m) {
+  if (m !== thisMonth() || !plan.cutoff) return '';
+  let tiles = '';
+  try { const f = forecastData(allBills(), fcEveryday, todayStr(), null, {topups: FAMILY}), nt = nowTiles(f); tiles = nt.left + nt.next + nt.low; } catch (e) { tiles = ''; }
+  return (tiles ? `<div class="tiles budtiles" id="budTiles">${tiles}</div>` : '') + budgetLinksHTML();
+}
+// Under the Ready to Assign card, this month only: any unusual charges, then the bills due in the next 2 weeks
+function budgetSoonHTML(m, row) {
+  if (m !== thisMonth() || !plan.cutoff) return '';
+  return unusualHTML(m) + billsHTML(m, row, 14);
+}
 function renderOverview() {
   recordWeek();
   const el = $('#tab-overview');
@@ -3083,44 +3156,25 @@ function renderOverview() {
   if (b.habit == null) b.habit = b.spend - (b.fixed || 0);
   const fx = b.fixed || 0, fxSub = fx > 0.5 ? ` · + ${fmt(fx)} fixed` : '';
   const fxTip = fx > 0.5 ? `<br>Not counted: ${fmt2(fx)} of fixed costs (${esc(nameList(fixedCats().filter(c => b.cats[c] > 0.005)))}), which come out regardless.` : '';
-  // Each tile: a number and one short line under it. The longer explanation shows on hover.
-  // go: where a click on the tile takes you (budgets, bills, tx, tx:out, tx:in, or bill:<key> for a pay's bill box)
-  const nxGo = 'billview:in'; // Next money in: the Bills tab's "Money coming in" list (not the bill's edit box)
-  const TILE_GO = {'Left to spend this week': 'ovview:pace', 'Balance': 'reconcile', 'Ready to Assign': 'budgets', 'Spent so far this month': 'tx:out', 'Spending': 'tx:out', 'Money in': 'tx:in', 'Left over': 'budgets', 'Lowest balance coming up': 'billview:fc', 'Top-up needed': 'billview:fc', 'Fun money this week': 'budgets'};
-  const NEUTRAL = {'Left to spend this week': 'teal', 'Balance': 'teal', 'Ready to Assign': 'sky', 'Spent so far this month': 'leaf', 'Spending': 'sky', 'Money in': 'leaf', 'Left over': 'sky', 'Next money in': 'leaf', 'Lowest balance coming up': 'teal'}; // tiles with no good/warn/bad status still get a colour
-  const tile = (label, value, sub, color, tip, go = label === 'Next money in' ? nxGo : TILE_GO[label]) => `<div class="tile tone-${/^(good|warn|bad)$/.test(color) ? color : NEUTRAL[label] || 'teal'}"${tip ? ` data-tip="${esc(tip)}"` : ''}${go ? ` data-go="${esc(go)}" tabindex="0" role="button"` : ''}><div class="label">${label}${tip ? infoBtn(tip) : ''}</div><div class="value"${color ? ` style="color:var(--${color})"` : ''}>${value}</div><div class="sub">${sub}</div></div>`;
+  const tile = ovTile;
   const cpT = P ? cardPot(P.by[m], m) : null, rtaT = P ? (cpT ? round2(P.by[m].rta + cpT.back) : P.by[m].rta) : 0;
   const rtaTile = P ? tile('Ready to Assign', fmt2(rtaT), rtaT < -0.005 ? 'assigned more than you have' : cpT && cpT.unfunded > 0.005 ? `card debt not yet funded ${fmt2(cpT.unfunded)}` : 'not given a job yet', rtaT < -0.005 ? 'bad' : cpT && cpT.unfunded > 0.005 ? 'warn' : '', 'Money in your budget that hasn\'t been given a job yet. Give it one on the Budget tab.' + (cpT ? ' A card you\'re paying off over time is kept apart: what isn\'t covered yet shows as "card debt not yet funded".' : '')) : '';
   let tiles;
   if (f) {
-    const nx = f.events.find(e => e.amount > 0 && e.date > f.today), nxList = nx ? f.events.filter(e => e.date === nx.date && e.amount > 0) : [], nxIn = nxList.reduce((s, e) => s + e.amount, 0), nd = nx ? daysBetween(f.today, nx.date) : 0;
-    // Fixed costs (like the mortgage) due from that pay until the one after: already spoken for, so the tile also shows what's left
-    const nx2 = nx && f.events.find(e => e.amount > 0 && e.date > nx.date), until = nx2 ? nx2.date : nx ? addDays(nx.date, 14) : '';
-    const nxFixed = nx ? f.events.filter(e => e.amount < 0 && !e.outside && e.cat && isFixed(e.cat) && e.date >= nx.date && e.date < until) : [];
-    const nxFx = -nxFixed.reduce((s, e) => s + e.amount, 0);
-    const ws = weekSpend(), wa = weekAllowance(); // this week against your weekly allowance
+    const wa = weekAllowance(), nt = nowTiles(f, wa); // this week against your weekly allowance; Left to spend, Next money in and the lowest balance (shared with the Budget tab)
     const to = wa ? goalTradeoff(wa.funLeft) : []; // what unspent fun money would add to the goals
     const fp = funPots(wa), potLines = fp && fp.pots.length ? `<div class="prows">` + fp.pots.map(p => prow(esc(p.c), p.over > 0.005 ? `${fmt(p.over)} over its ${fmt(p.target)}` : `${fmt(p.left)} left of ${fmt(p.target)}`, p.over > 0.005 ? 'bad' : '')
       + (p.overMonth > p.over + 0.005 ? prow(`This month - Overspent already`,`${fmt(round2(p.overMonth - p.over))} over`, 'bad') : '')).join('') + `</div>` : '';
-    const tw = topUpWarn(f); // a top-up from the offset coming up (family budget)
-    const of = offsetForecast(f), ofShort = of && of.short && daysBetween(f.today, of.short.date) <= 14; // and what's left to draw in the offset
-    const ofTip = of ? `<br>${esc(of.name)}: ${fmt2(of.now)} available to draw now.` + (of.short ? ` <b>About ${fmt(of.short.amount)} short on ${dayLabel(of.short.date)}</b>, when ${esc(nameList(of.short.what))} come${of.short.what.length === 1 ? 's' : ''} out.` : ` Lowest about ${fmt(of.low.avail)} around ${shortDay(of.low.date)}.`) : '';
     const hand = round2(txns.filter(t => t.manual).reduce((s, t) => s + t.amount, 0)); // added by hand, not in the bank yet
     // Two or more accounts in this budget: show each one's balance, so the total is easy to check against the bank
     const accts = accounts.length > 1 ? accounts.map(a => ({a, bal: acctBalance(a.id, f.end)})) : [];
     const shortName = a => /^account\b/i.test(a.name) ? 'Bank account' : a.name.length <= 18 ? a.name : a.name.slice(0, 16) + '…';
     const split = accts.map(x => (x.a.carry ? `<span class="accsplit muted"><span>${esc(shortName(x.a))} owed</span><span>${fmt2(Math.max(0, -x.bal))}</span></span>` : `<span class="accsplit"><span>${esc(shortName(x.a))}</span><span>${fmt2(x.bal)}</span></span>`) + guardLine(x.a)).join('');
-    // The one number to look at first: what's left of this week's allowance for everything that isn't a bill (the tiles below are the detail)
-    const leftTile = wa ? tile('Left to spend this week', fmt(Math.max(0, wa.left)), wa.amount <= 0 ? `nothing spare: tightest ${shortDay(wa.pinch.date)}` : `of ${fmt(wa.amount)} · ${wa.daysLeft} day${wa.daysLeft === 1 ? '' : 's'} to go`,
-        wa.left < 0 || wa.amount <= 0 ? 'bad' : wa.left < wa.amount * 0.2 ? 'warn' : 'good',
-        `You can spend about <b>${fmt(wa.amount)}</b> this week (${shortDay(wa.start)} to ${shortDay(wa.end)}) on things that aren't bills. You've spent ${fmt2(wa.spent)} so far, so <b>${wa.left >= 0 ? fmt2(wa.left) + ' is left' : fmt2(-wa.left) + ' over'}</b>.`
-        + `<br>How it's worked out: your balance, less every bill coming up, less money already set aside (${wa.goals.saved > 0.005 ? 'goals ' + fmt(wa.goals.saved) : 'goals $0'}${wa.held.list.length ? '; ' + esc(nameList(wa.held.list.map(x => `${x.c} ${fmt(x.amount)}`))) : ''}), less a ${fmt(wa.buffer)} "keep at least" amount. What's left is spread evenly over the weeks until the tightest day (${shortDay(wa.pinch.date)}).`
-        + `<br>Tap to change the "keep at least" amount or set a cap.`) : '';
     // Two or more accounts: the first (e.g. Joint Spending) is the big number, the others sit under it, then the total
     const heroAcc = accts.length > 1 && accts[0].bal != null && !accts[0].a.carry ? accts[0] : null;
     const heroSplit = heroAcc ? guardLine(heroAcc.a) + accts.slice(1).map(x => (x.a.carry ? `<span class="accsplit muted"><span>${esc(shortName(x.a))} owed</span><span>${fmt2(Math.max(0, -x.bal))}</span></span>` : `<span class="accsplit"><span>${esc(shortName(x.a))}</span><span>${fmt2(x.bal)}</span></span>`) + guardLine(x.a)).join('')
       + `<span class="accsplit"><span>Total</span><span>${fmt2(f.start)}</span></span>` : '';
-    tiles = leftTile + tile(heroAcc ? shortName(heroAcc.a) : 'Balance', fmt2(heroAcc ? heroAcc.bal : f.start), heroSplit || split || (hand ? `${shortDay(f.end)} · incl. ${fmt2(hand)} added by hand` : `at ${shortDay(f.end)}`), (heroAcc ? heroAcc.bal : f.start) < 0 ? 'bad' : '',
+    tiles = nt.left + tile(heroAcc ? shortName(heroAcc.a) : 'Balance', fmt2(heroAcc ? heroAcc.bal : f.start), heroSplit || split || (hand ? `${shortDay(f.end)} · incl. ${fmt2(hand)} added by hand` : `at ${shortDay(f.end)}`), (heroAcc ? heroAcc.bal : f.start) < 0 ? 'bad' : '',
         `Your ${accts.length ? 'accounts\' balance, all added together' : 'account balance'}, going by your bank data up to ${dayLabel(f.end)}.`
         + (accts.length ? '<br>' + accts.map(x => x.a.carry ? `${esc(x.a.name)}: you owe ${fmt2(Math.max(0, -x.bal))}` : `${esc(x.a.name)}: ${fmt2(x.bal)}`).join('<br>') + (accts.some(x => !x.a.carry && x.bal < 0) ? '<br>A minus is money owed, like a credit card balance.' : '') : '')
         + (accts.some(x => x.a.carry) ? '<br>A card you\'re paying off over time isn\'t taken off this balance. Only the repayments you plan are.' : '')
@@ -3137,23 +3191,7 @@ function renderOverview() {
               : `Your spare money after every bill, pay, goal savings and essentials. Set a weekly target on a category (Budget tab) to make it a flat amount.`
                 + (to.length ? ` Spend it and that's ${fmt(to.reduce((s, p) => s + p.amount, 0))} less going to your goals next week; leave it and it's offered to them.` : ''),
             'budgets'); })() : '')
-      + (nx ? tile('Next money in', fmt(nxIn), `${dayLabel(nx.date)} · in ${nd} day${nd === 1 ? '' : 's'}`
-          + (nxFx > 0.5 ? `<div class="prows">${prow('After fixed costs', fmt(nxIn - nxFx))}</div>` : ''), '',
-        nxList.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join('<br>')
-          + (nxFx > 0.5 ? `<br>Less fixed costs before ${nx2 ? 'the pay after' : 'two weeks on'} (${shortDay(until)}): ` + nxFixed.map(e => `${esc(e.name)} ${fmt2(-e.amount)} on ${shortDay(e.date)}`).join(', ')
-            + `<br>Left for everything else: ${fmt2(nxIn - nxFx)}` : '')) : '')
-      + (tw && tw.level // a top-up from the offset within 2 weeks: orange from a week out, red the day before
-        ? tile('Top-up needed', fmt(tw.amount), `from the offset by ${dayLabel(tw.date)} · ${tw.days ? `in ${tw.days} day${tw.days === 1 ? '' : 's'}` : 'today'}`
-            + (ofShort ? `<div class="prows">${prow('Offset short ' + shortDay(of.short.date), fmt(of.short.amount), 'bad')}</div>` : ''), ofShort ? 'bad' : tw.level === 'note' ? '' : tw.level,
-          `Without it, your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.<br>This is just enough to stay above ${fmt(f.floor)} until the next money in, rounded up to $50.`
-          + (f.topups.length > 1 ? '<br>Later: ' + f.topups.slice(1).map(t => `${fmt(t.amount)} by ${shortDay(t.date)}`).join(', ') : '')
-          + (f.fromOffset.outside > 0.005 ? `<br>The offset also pays ${fmt2(f.fromOffset.outside)} of bills in the next 6 weeks (like the rates).` : '') + ofTip)
-        : tile('Lowest balance coming up', fmt(f.low.bal), `around ${dayLabel(f.low.date)}` + (f.topups.length ? ` · includes a ${fmt(f.topups[0].amount)} top-up from the offset by ${shortDay(f.topups[0].date)}` : '')
-            + (ofShort ? `<div class="prows">${prow('Offset short ' + shortDay(of.short.date), fmt(of.short.amount), 'bad')}</div>` : ''), f.low.bal < 0 || ofShort ? 'bad' : f.low.bal < Math.max(100, f.typical) && !f.topups.length ? 'warn' : '',
-        `Your account's expected lowest point in the next 6 weeks${f.low.bal < 0 ? ' (overdrawn)' : ''}, counting bills, regular money in${fcEveryday ? ' and typical everyday spending' : ''}.`
-        + (f.topups.length ? `<br>That counts a top-up from the offset of ${fmt(f.topups[0].amount)} by ${dayLabel(f.topups[0].date)}, because without it your balance would get down to about ${fmt2(f.rawLow.bal)} around ${dayLabel(f.rawLow.date)}.` : '')
-        + (() => { const on = f.events.filter(e => e.date === f.low.date && !e.outside); return on.length ? `<br>That day: ${on.map(e => `${esc(e.name)} ${fmt2(e.amount)}`).join(', ')}.` : `<br>Nothing is due that day: it's the low point after the bills and everyday spending before it.`; })() + ofTip
-        + (fcEveryday ? '<br>The upcoming rows on the Transactions tab leave out everyday spending, so they show a higher balance.' : '')));
+      + nt.next + nt.low;
   } else {
     // Money moved in from accounts outside this budget (like an offset top-up): not income, but the Budget tab counts it as money in
     const movedIn = round2(txns.filter(t => t.date.startsWith(m) && !isInternal(t)).reduce((s, t) => s + partsOf(t).reduce((a, p) => a + (KIND[p.cat] === 'transfer' && p.amount > 0 && !heldIn(t, p.cat) ? p.amount : 0), 0), 0));
@@ -3193,7 +3231,7 @@ function renderOverview() {
     checks: () => `<div class="card" id="checksCard"><h2>Check the numbers</h2><p class="muted" style="margin-top:0">Six checks that the app's totals add up.</p>${checksHTML()}</div>`,
   };
   const viewHtml = ovView !== 'home' && cardOf[ovView] ? cardOf[ovView]() : '';
-  if (viewHtml) el.innerHTML = `<button type="button" class="backbtn" data-ovview="home">← Back</button>` + viewHtml;
+  if (viewHtml) el.innerHTML = `<button type="button" class="backbtn" data-ovview="home">${cardFrom ? '← Back to Budget' : '← Back'}</button>` + viewHtml;
   else {
     ovView = 'home';
     const mapPref = localStorage.getItem('ovMap') === '1';
@@ -3231,6 +3269,7 @@ function renderOverview() {
 // Six checks that the app's totals add up. Nothing here changes your data; it only runs when you open the card.
 let checksOpen = false;
 let txToolsOpen = false; // Transactions: is the Filters & tools fold open?
+let cardFrom = null; // a card opened from the Budget tab ('budgets'): its Back button (and the phone's back) go straight back there
 let ovView = 'home'; // Overview: 'home', or the card showing (plain, soon, goals, payback, odd, pace, where, trends, payees, checks)
 // A big button that opens one card (Bills, Overview and Net worth all use it); attr is the data attribute that says which
 function viewTile(attr, view, label, value, sub, tone = 'teal') {
@@ -3417,12 +3456,14 @@ const spendOn = (c, from, to) => {
 const spendBlocks = (c, m) => {
   const S = spendCheckOf(c); if (!S) return null;
   const first = m + '-01', last = addDays(addMonths(m, 1) + '-01', -1), today = todayStr(), out = [], adj = (plan.spendAdj || {})[c] || {};
+  const bills = allBills().filter(b => b.out && !b.done && b.cat === c); // its bills still to pay, to show in the week they come out
   let s;
   if (S.len === 7) s = nextOnWeekday(first, S.day);
   else { const a = S.from || nextOnWeekday(first, S.day); s = addDays(a, Math.ceil(daysBetween(a, first) / 14) * 14); }
   for (; s <= last; s = addDays(s, S.len)) {
     const e = addDays(s, S.len - 1), future = s > today, bank = future ? 0 : spendOn(c, s, e), extra = round2(adj[s] || 0), spent = round2(bank + extra);
-    out.push({s, e, bank, extra, spent, future: future && !extra, cur: s <= today && today <= e, over: S.limit != null && spent > S.limit + 0.005});
+    const due = e < today ? [] : bills.flatMap(b => billDates(b, s, e).map(d => ({name: b.name, date: d, amount: billAmtOn(b, d), outside: b.outside}))).sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0);
+    out.push({s, e, bank, extra, spent, future: future && !extra, cur: s <= today && today <= e, over: S.limit != null && spent > S.limit + 0.005, due, dueSum: round2(due.reduce((q, x) => q + x.amount, 0))});
   }
   return {...S, blocks: out};
 };
@@ -3430,9 +3471,11 @@ const spendStripHTML = (c, m) => {
   const B = spendBlocks(c, m); if (!B || !B.blocks.length) return '';
   const word = B.len === 7 ? 'week' : 'fortnight';
   return `<span class="wkstrip" aria-label="Spending each ${word}">${B.blocks.map(b => {
-    const cls = b.future ? 'fut' : b.over ? 'over' : B.limit == null ? 'nolim' : 'ok';
-    const tip = `${shortDay(b.s)} – ${shortDay(b.e)}: ${b.future ? 'not started yet' : `spent ${fmt2(b.spent)}`}${b.extra ? ` (${fmt2(b.bank)} from the bank ${b.extra > 0 ? '+' : '−'} ${fmt2(Math.abs(b.extra))} added by you)` : ''}${B.limit != null ? ` of ${fmt2(B.limit)}${b.over ? `, over by ${fmt2(b.spent - B.limit)}` : ''}` : ''}${b.cur ? ` · this ${word}` : ''}. Click to add or change an amount.`;
-    return `<button type="button" class="wkb ${cls}${b.cur ? ' cur' : ''}" data-wkadj="${esc(c)}" data-wks="${b.s}" title="${esc(tip)}"><small>${shortDay(b.s)}</small>${b.future ? '–' : fmt(b.spent)}${b.extra ? '<i class="wkadj">✎</i>' : ''}</button>`;
+    const cls = (b.future ? 'fut' : b.over ? 'over' : B.limit == null ? 'nolim' : 'ok') + (b.future && b.dueSum > 0.005 ? ' due' : '');
+    const dueTip = b.due.length ? ` Due${b.future ? '' : ' still'}: ${b.due.map(x => `${x.name} ${fmt2(x.amount)} on ${dayLabel(x.date)}${x.outside ? ' (paid from the offset)' : ''}`).join(', ')}.` : '';
+    const tip = `${shortDay(b.s)} – ${shortDay(b.e)}: ${b.future ? (b.due.length ? 'coming up' : 'not started yet') : `spent ${fmt2(b.spent)}`}${b.extra ? ` (${fmt2(b.bank)} from the bank ${b.extra > 0 ? '+' : '−'} ${fmt2(Math.abs(b.extra))} added by you)` : ''}${B.limit != null ? ` of ${fmt2(B.limit)}${b.over ? `, over by ${fmt2(b.spent - B.limit)}` : ''}` : ''}${b.cur ? ` · this ${word}` : ''}.${dueTip} Click to add or change an amount.`;
+    const main = b.future ? (b.dueSum > 0.005 ? `<span>${fmt(b.dueSum)}<i class="wkduew"> due</i></span>` : '–') : fmt(b.spent);
+    return `<button type="button" class="wkb ${cls}${b.cur ? ' cur' : ''}" data-wkadj="${esc(c)}" data-wks="${b.s}" title="${esc(tip)}"><small>${shortDay(b.s)}</small>${main}${!b.future && b.dueSum > 0.005 ? `<small class="wkdueln">+${fmt(b.dueSum)} due</small>` : ''}${b.extra ? '<i class="wkadj">✎</i>' : ''}</button>`;
   }).join('')}</span>`;
 };
 // Click a block: add money spent that isn't in the bank (or take some off). Asks for the extra, not the total.
@@ -4621,7 +4664,7 @@ function renderBudgets() {
         : 'Press <b>Cover it</b> on the red rows to move money in from another category.'} <span class="muted">Anything not covered by the end of the month comes off next month's Ready to Assign.</span></span>
       ${row.rta > 0.005 ? `<button class="btn sm primary" id="coverAll" data-auto="paid" title="Assigns each red category exactly what's been spent in it">Cover what's been spent (${fmt2(overBy)})</button>` : ''}</div>` : '';
   const sumInCard = !selCat; // no category open: the budget table takes the full width (the summary cards sit below it)
-  el.innerHTML = `
+  el.innerHTML = `${budgetTopHTML(m)}
     <div class="card rta ${st[0]} tone-${{todo: 'warn', over: 'bad'}[st[0]] || 'good'}">
       <div class="rta-head">
         <div class="rta-actions">${FP && row.rta > 0.005 ? `<button class="btn primary" id="rtaAuto" title="Bills first, then essentials, then what's left over. You can untick or change anything before it is assigned.">Assign my pay</button>` : ''}<button class="btn" id="rtaRec">Reconcile</button><button class="btn" id="rtaMove">Move money</button><button class="btn" id="newCatBtn">+ New category</button><button class="btn" id="catsBtn">Edit categories…</button><button class="btn" id="rtaDetail" title="Show or hide the extra columns (progress, to go, plan, when)">${budgetLite() ? 'More detail' : 'Less detail'}</button></div>
@@ -4652,6 +4695,7 @@ function renderBudgets() {
         </div></div>
       </div>
     </div>
+    ${budgetSoonHTML(m, row)}
     ${early.n ? `<div class="card info tone-teal"><b>${early.n} payment${early.n === 1 ? '' : 's'} from earlier in ${monthLabel(m)} (${fmt2(early.total)}) ${early.n === 1 ? "isn't" : "aren't"} in this budget yet</b>, because it starts on ${dateLabel(addDays(plan.cutoff, 1))}. <button class="btn sm primary" id="incEarlier">Fill them in as already paid</button><div class="muted" style="margin-top:4px">Ready to Assign stays the same. They just show up as paid, so you can see the whole month.</div></div>` : ''}
     <div class="plan-grid${sumInCard ? ' one' : ''}">
       <div class="card plan-wrap" style="padding:0;overflow-x:auto"><table class="plan${budgetLite() ? ' lite' : ''}">
@@ -4815,7 +4859,7 @@ function summaryHTML(m, P, row, under) {
   </div>
   ${targetsCardHTML(m, P, row, under)}
   ${prioritiesHTML(P)}
-  ${billsHTML(m, row)}
+  ${m !== thisMonth() ? billsHTML(m, row) : ''}
   <div class="card"><h2>Budget health</h2>
     ${kv('Age of money', aom == null ? '—' : aom + ' days')}
     <p class="muted" style="margin:4px 0 12px">${aomPrev == null ? 'How old your money is when you spend it.' : `A month earlier: ${aomPrev} days.`} Aim for 30+ days. That means you're living on last month's income, not this week's pay.</p>
@@ -6051,8 +6095,8 @@ const coverText1 = (c, cat) => c.state === 'outside' ? '<span class="pos" title=
   : `<span style="color:var(--warn)" title="Even with the pay due in by then, this is ${fmt2(c.short)} short">! ${fmt2(c.short)} short</span>`;
 // Money expected in over the next while (the forecast's pay and other regular money in)
 const moneyIn = today => forecastData(allBills(today), false, today).events.filter(e => e.amount > 0).map(e => ({date: e.date, amount: e.amount}));
-function billsHTML(m, row) {
-  const today = todayStr(), end = addDays(today, 30), dEnd = bankEnd(today), found = allBills(today).filter(b => !b.done && b.next <= end);
+function billsHTML(m, row, days = 30) {
+  const today = todayStr(), end = addDays(today, days), dEnd = bankEnd(today), found = allBills(today).filter(b => !b.done && b.next <= end);
   const bills = found.filter(b => b.out), ins = found.filter(b => !b.out);
   const cover = row && m === thisMonth(); // only check against this month's money when looking at this month
   // every due date in the 30 days counts (a weekly bill is four payments, not one); each bill shows the state of its first one
@@ -6067,8 +6111,9 @@ function billsHTML(m, row) {
     return `<div class="bill billrow" data-bill="${esc(b.key)}" title="See or change this bill"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(b.name)}</b><span class="row" style="gap:2px"><b>${b.varies ? 'about ' : ''}${fmt2(b.amount)}</b>${b.out ? enterBtn(b.key) : ''}${act}</span></div>
       <div class="muted" style="font-size:12px">${dayLabel(b.next)} (${when(b.next)}) · ${b.rhythm === 'once' ? 'just once' : b.rhythm}${b.cat ? ' · ' + esc(b.cat) : ''}${b.email ? ' · from your email' : b.manual ? ' · added by you' : ''}${status}</div></div>`;
   }).join('');
-  return `<div class="card" id="billsCard"><h2>Upcoming bills</h2>
-    <p class="muted" style="margin-top:0">Regular payments due in the next 30 days, worked out from your past transactions.${cover ? " Each is checked against its category, then Ready to Assign, then pay that comes in before it's due." : ''}</p>
+  const span = days === 14 ? 'the next 2 weeks' : `the next ${days} days`;
+  return `<div class="card" id="billsCard"><h2>${days === 14 ? 'Coming up in the next 2 weeks' : 'Upcoming bills'}</h2>
+    <p class="muted" style="margin-top:0">Regular payments due in ${span}, worked out from your past transactions.${cover ? " Each is checked against its category, then Ready to Assign, then pay that comes in before it's due." : ''}</p>
     ${emailBillsHTML()}
     ${items || '<p class="muted">None due.</p>'}
     ${bills.length ? kv('Total due', fmt2(bills.reduce((s, b) => s + b.amount, 0))) : ''}
@@ -6179,7 +6224,7 @@ function renderBills() {
   const bills = allBills();
   if (billView !== 'whatif') whatIf = newWhatIf(); // a what-if lives only while you're looking at it
   if (!(billView in BILL_VIEWS)) { el.innerHTML = billsHomeHTML(bills); return; }
-  const back = `<button type="button" class="backbtn" data-billview="home">← Back</button>`;
+  const back = `<button type="button" class="backbtn" data-billview="home">${cardFrom ? '← Back to Budget' : '← Back'}</button>`;
   if (billView === 'due') el.innerHTML = back + `<div class="card">${dueSoonHTML(bills)}</div>`;
   else if (billView === 'whatif') el.innerHTML = back + `<div class="card">${whatIfHTML(bills)}</div>`;
   else if (billView === 'fc') el.innerHTML = back + `<div class="card">${forecastHTML(bills)}</div>`;
@@ -6477,7 +6522,7 @@ function billClick(e) {
   else if ('billedit' in b.dataset) openBill(billCfg.added.find(x => x.id === b.dataset.billedit));
   else if ('billadd' in b.dataset) openBill(null);
   else if ('billtab' in b.dataset) { tab = 'bills'; billView = 'home'; render(); scrollTo(0, 0); }
-  else if ('billview' in b.dataset) { billView = b.dataset.billview; render(); scrollTo(0, 0); }
+  else if ('billview' in b.dataset) { billView = b.dataset.billview; if (billView === 'home' && cardFrom) { tab = cardFrom; cardFrom = null; } render(); scrollTo(0, 0); }
   else if ('wiapply' in b.dataset) applyWhatIf();
   else if ('wiclear' in b.dataset) { whatIf = newWhatIf(); renderBills(); }
   else if ('ebadd' in b.dataset) addEmailBill(b.dataset.ebadd);
@@ -7876,7 +7921,7 @@ addEventListener('beforeunload', e => {
 // Open where you left off: same tab and month (kept in this browser only, not part of Undo or the save file)
 const savedView = (() => { try { return JSON.parse(localStorage.getItem(PK + 'view')) || {}; } catch { return {}; } })();
 let tab = 'data'; // set properly once the transactions have loaded (see the end of the script)
-const startTab = () => txns.length ? (['overview', 'budgets', 'bills', 'transactions', 'shops', 'worth', 'data'].includes(savedView.tab) ? savedView.tab : 'overview') : 'data';
+const startTab = () => txns.length ? (savedView.tab === 'transactions' ? 'transactions' : 'budgets') : 'data'; // the Budget tab is home (the tabs under More don't reopen by themselves)
 let startMonth = null; // always open on the current month (the tab is remembered, the month isn't)
 if (savedView.allMonths) txFilter.allMonths = true;
 function saveView() { localStorage.setItem(PK + 'view', JSON.stringify({tab, month: selectedMonth(), allMonths: txFilter.allMonths})); }
@@ -7975,7 +8020,7 @@ if (sortMain) sortMain.addEventListener('click', e => {
 // ---------- Android back button ----------
 // Without this, back leaves the app. Each step in (a tab other than the first one, a card inside a tab, an open dialog) adds one
 // entry to the browser's history, and back undoes one step: dialog first, then the card, then the tab. From the first screen back leaves.
-let navHome = 'overview', navDepth = 0, navSkip = 0;
+let navHome = 'budgets', navDepth = 0, navSkip = 0;
 const navDlgs = []; // dialogs in the order they were opened
 const navOpen = () => navDlgs.filter(d => d.open);
 const navCard = () => (tab === 'overview' && ovView !== 'home') || (tab === 'bills' && billView !== 'home') || (tab === 'worth' && nwCard !== 'home');
@@ -7993,7 +8038,7 @@ addEventListener('popstate', () => {
   navDepth--;
   const dlg = navOpen().pop();
   if (dlg) dlg.close();
-  else if (navCard()) { if (tab === 'overview') ovView = 'home'; else if (tab === 'bills') billView = 'home'; else nwCard = 'home'; render(); scrollTo(0, 0); }
+  else if (navCard()) { if (tab === 'overview') ovView = 'home'; else if (tab === 'bills') billView = 'home'; else nwCard = 'home'; if (cardFrom && (tab === 'overview' || tab === 'bills')) { tab = cardFrom; cardFrom = null; } render(); scrollTo(0, 0); }
   else if (tab !== navHome) { tab = navHome; render(); }
   navSync();
 });
@@ -8004,6 +8049,7 @@ if (typeof HTMLDialogElement !== 'undefined') {
 }
 function render() {
   if (tab !== 'transactions') txBack = false;
+  if (tab !== 'overview' && tab !== 'bills') cardFrom = null;
   if (tab !== sortTab) { sortTab = tab; for (const k in tableSorts) delete tableSorts[k]; } // a new tab starts in the normal order
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   drawMore();
@@ -8027,15 +8073,21 @@ addEventListener('storage', e => {
     refresh(); undoReset(); // undo steps from before would bring back old data
   }, 50);
 });
-const MORE_TABS = {shops: 'Shops', worth: 'Net worth', data: 'Load data'};
+const MORE_TABS = {overview: 'Overview', bills: 'Bills', shops: 'Shops', worth: 'Net worth', data: 'Load data'};
 function drawMore() { // on a phone, More lights up (and says the tab's name) when one of its tabs is open
   const b = $('#navMore'); if (!b) return;
   const on = tab in MORE_TABS;
   b.classList.toggle('active', on); const l = b.querySelector('.mlbl'); if (l) l.textContent = on ? MORE_TABS[tab] : 'More';
   document.querySelectorAll('#moreSheet button').forEach(x => x.classList.toggle('active', x.dataset.tab === tab));
 }
-function toggleMore(open) { const sh = $('#moreSheet'), b = $('#navMore'); if (!sh) return; sh.hidden = open === undefined ? !sh.hidden : !open; if (b) b.setAttribute('aria-expanded', String(!sh.hidden)); }
-const goTab = t => { if (t === 'bills' && tab !== 'bills') billView = 'home'; tab = t; toggleMore(false); render(); };
+function toggleMore(open) {
+  const sh = $('#moreSheet'), b = $('#navMore'); if (!sh) return; sh.hidden = open === undefined ? !sh.hidden : !open; if (b) b.setAttribute('aria-expanded', String(!sh.hidden));
+  try { // a wide screen: drop down under the More button (a phone's sheet sits above the bottom bar, from the CSS)
+    const phone = matchMedia('(max-width: 700px)').matches, r = !phone && !sh.hidden && b ? b.getBoundingClientRect() : null;
+    sh.style.top = r ? Math.round(r.bottom + 4) + 'px' : ''; sh.style.left = r ? Math.round(Math.max(8, Math.min(r.left, innerWidth - 176))) + 'px' : '';
+  } catch {}
+}
+const goTab = t => { if (t === 'bills' && tab !== 'bills') billView = 'home'; if (t === 'overview' && tab !== 'overview') ovView = 'home'; cardFrom = null; tab = t; toggleMore(false); render(); };
 $('#nav').onclick = e => { if (e.target.closest('#navMore')) return toggleMore(); const b = e.target.closest('[data-tab]'); if (b) goTab(b.dataset.tab); };
 $('#moreSheet').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) goTab(b.dataset.tab); };
 document.addEventListener('click', e => { const sh = $('#moreSheet'); if (sh && !sh.hidden && !e.target.closest('#moreSheet, #navMore')) toggleMore(false); });
@@ -8255,7 +8307,19 @@ $('#tab-budgets').addEventListener('click', async e => {
   const t = await askText(`Offset: how much is available to draw now? (from your banking app)${cur ? `\nLast entered: ${fmt2(cur.amt)} on ${dateLabel(cur.date)}` : ''}`, cur ? cur.amt.toFixed(2) : '');
   if (t !== null && String(t).trim()) enterOffsetAvail(t);
 });
-$('#tab-budgets').addEventListener('click', e => { if (e.target.closest('#billsCard, #payCard')) billClick(e); });
+$('#tab-budgets').addEventListener('click', e => { if (e.target.closest('#billsCard, #payCard')) { if (e.target.closest('[data-billtab]')) cardFrom = 'budgets'; billClick(e); } });
+// The Budget tab's top: a tile or a small button opens its card on the Overview or Bills page, and that card's Back comes back here
+$('#tab-budgets').addEventListener('click', e => {
+  const l = e.target.closest('[data-budgo]');
+  if (l) { cardFrom = 'budgets'; tileGo(l.dataset.budgo); return; }
+  const tl = e.target.closest('#budTiles [data-go]');
+  if (tl && !e.target.closest('input, select, button, a')) { if (/^(ovview|billview):/.test(tl.dataset.go)) cardFrom = 'budgets'; tileGo(tl.dataset.go); return; }
+  const b = e.target.closest('#oddCard button'); // unusual charges: "It's fine", or show them all
+  if (!b) return;
+  if (b.dataset.uok) { dismissOdd(b.dataset.uok); renderBudgets(); }
+  else if ('oddshow' in b.dataset) { Object.assign(txFilter, {q: '', cat: '', allMonths: false, show: 'odd'}); tab = 'transactions'; render(); }
+});
+$('#tab-budgets').addEventListener('keydown', e => { const tl = e.target.closest && e.target.closest('#budTiles .tile[data-go]'); if (tl && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (/^(ovview|billview):/.test(tl.dataset.go)) cardFrom = 'budgets'; tileGo(tl.dataset.go); } });
 // An Overview tile: Budget or Bills tab, this month's transactions (all, money out or money in), or a pay's bill box
 function tileGo(go) {
   if (go.startsWith('bill:')) { openBillRow(go.slice(5)); return; }
@@ -8278,7 +8342,9 @@ function tileGo(go) {
 }
 $('#tab-overview').addEventListener('click', e => { // a big button, or Back
   const v = e.target.closest('[data-ovview]'); if (!v) return;
-  ovView = v.dataset.ovview; render(); scrollTo(0, 0);
+  ovView = v.dataset.ovview;
+  if (ovView === 'home' && cardFrom) { tab = cardFrom; cardFrom = null; } // opened from the Budget tab: back there
+  render(); scrollTo(0, 0);
 });
 $('#tab-overview').addEventListener('click', e => { // Top payees: this month, 3 months, 6 months, a year or all time
   const b = e.target.closest('[data-payper]'); if (!b) return;
