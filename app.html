@@ -145,7 +145,9 @@ table.plan.lite .cmeta { display: flex; }
 .wprog { display: inline-flex; align-items: center; gap: 8px; }
 /* Spend check: one block per week/fortnight on a Budget row */
 .wkstrip { float: right; display: inline-flex; gap: 3px; margin-left: 12px; }
-.wkb { display: inline-flex; flex-direction: column; align-items: center; min-width: 54px; padding: 2px 5px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 1.25; }
+.wkb { font: inherit; color: inherit; border: 0; cursor: pointer; position: relative; display: inline-flex; flex-direction: column; align-items: center; min-width: 54px; padding: 2px 5px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 1.25; }
+.wkb .wkadj { position: absolute; top: 1px; right: 3px; font-size: 9px; font-style: normal; opacity: .7; }
+.wkb:hover { filter: brightness(.95); }
 .wkb small { font-size: 10px; font-weight: 400; color: var(--text-muted); }
 .wkb.ok { background: color-mix(in srgb, var(--good) 22%, transparent); }
 .wkb.over { background: color-mix(in srgb, var(--bad) 26%, transparent); }
@@ -3384,12 +3386,14 @@ function parseAmount(str, current) {
 // by a month, maybe repeating), and 'bills' (follows the category's bills on the Bills tab, changing by itself).
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 // Spend check: a strip of blocks on a Budget row, one per week (or fortnight) that starts in the month, each showing what was spent
-// in it: green within the limit, red over. plan.spendCheck[c] = {every: 'off'|'weekly'|'fortnightly', day, from, limit}.
-// A weekly target turns it on by itself (its amount and week-start day) until you change it. No limit set: the target sets it.
+// in it: green within the limit, red over, grey with no limit. plan.spendCheck[c] = {every: 'off'|'weekly'|'fortnightly', day, from, limit}.
+// Every spending category shows weekly blocks unless you turn it off. No limit set: the target sets it (weekly as is, monthly spread out).
+// plan.spendAdj[c][start] = money added to (or taken off) that week's figure by hand, e.g. groceries paid from another card.
+// It only changes the blocks, not the budget.
 const spendCheckOf = c => {
   const s = (plan.spendCheck || {})[c], tg = plan.targets[c] || {};
   if (s && s.every === 'off') return null;
-  const every = s ? s.every : tg.type === 'weekly' && tg.amount > 0 ? 'weekly' : null;
+  const every = s ? s.every : KIND[c] === 'expense' ? 'weekly' : null;
   if (every !== 'weekly' && every !== 'fortnightly') return null;
   const len = every === 'weekly' ? 7 : 14, from = s && /^\d{4}-\d{2}-\d{2}$/.test(s.from || '') ? s.from : null;
   const day = s && Number.isInteger(s.day) ? s.day : Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay;
@@ -3397,16 +3401,26 @@ const spendCheckOf = c => {
   if (limit == null && tg.amount > 0) limit = tg.type === 'weekly' ? tg.amount * len / 7 : tg.type === 'monthly' ? tg.amount * 12 * len / 365.25 : null;
   return {every, len, day, from, limit: limit != null ? round2(limit) : null, auto: s && s.limit > 0 ? false : limit != null};
 };
+let _spendDays = null; // spending per category per day around the month on show; cleared on each Budget render
+const spendOn = (c, from, to) => {
+  if (!_spendDays || _spendDays.from !== from.slice(0, 7)) {
+    const a = from.slice(0, 7) + '-01', b = addDays(a, 50), by = {};
+    for (const t of txns) if (t.date >= a && t.date <= b && !isInternal(t)) for (const p of partsOf(t)) { const o = by[p.cat] || (by[p.cat] = {}); o[t.date] = (o[t.date] || 0) - p.amount; }
+    _spendDays = {from: from.slice(0, 7), by};
+  }
+  const o = _spendDays.by[c] || {}; let s = 0;
+  for (let d = from; d <= to; d = addDays(d, 1)) s += o[d] || 0;
+  return round2(s);
+};
 const spendBlocks = (c, m) => {
   const S = spendCheckOf(c); if (!S) return null;
-  const first = m + '-01', last = addDays(addMonths(m, 1) + '-01', -1), today = todayStr(), out = [];
+  const first = m + '-01', last = addDays(addMonths(m, 1) + '-01', -1), today = todayStr(), out = [], adj = (plan.spendAdj || {})[c] || {};
   let s;
   if (S.len === 7) s = nextOnWeekday(first, S.day);
   else { const a = S.from || nextOnWeekday(first, S.day); s = addDays(a, Math.ceil(daysBetween(a, first) / 14) * 14); }
   for (; s <= last; s = addDays(s, S.len)) {
-    const e = addDays(s, S.len - 1), future = s > today;
-    const spent = future ? 0 : round2(-txns.filter(t => t.date >= s && t.date <= e && !isInternal(t)).reduce((q, t) => q + partsOf(t).reduce((r, p) => r + (p.cat === c ? p.amount : 0), 0), 0));
-    out.push({s, e, spent, future, cur: s <= today && today <= e, over: S.limit != null && spent > S.limit + 0.005});
+    const e = addDays(s, S.len - 1), future = s > today, bank = future ? 0 : spendOn(c, s, e), extra = round2(adj[s] || 0), spent = round2(bank + extra);
+    out.push({s, e, bank, extra, spent, future: future && !extra, cur: s <= today && today <= e, over: S.limit != null && spent > S.limit + 0.005});
   }
   return {...S, blocks: out};
 };
@@ -3415,9 +3429,20 @@ const spendStripHTML = (c, m) => {
   const word = B.len === 7 ? 'week' : 'fortnight';
   return `<span class="wkstrip" aria-label="Spending each ${word}">${B.blocks.map(b => {
     const cls = b.future ? 'fut' : b.over ? 'over' : B.limit == null ? 'nolim' : 'ok';
-    const tip = `${shortDay(b.s)} – ${shortDay(b.e)}: ${b.future ? 'not started yet' : `spent ${fmt2(b.spent)}`}${B.limit != null ? ` of ${fmt2(B.limit)}${b.over ? ` (over by ${fmt2(b.spent - B.limit)})` : ''}` : ''}${b.cur ? ` · this ${word}` : ''}`;
-    return `<span class="wkb ${cls}${b.cur ? ' cur' : ''}" title="${esc(tip)}"><small>${shortDay(b.s)}</small>${b.future ? '–' : fmt(b.spent)}</span>`;
+    const tip = `${shortDay(b.s)} – ${shortDay(b.e)}: ${b.future ? 'not started yet' : `spent ${fmt2(b.spent)}`}${b.extra ? ` (${fmt2(b.bank)} from the bank ${b.extra > 0 ? '+' : '−'} ${fmt2(Math.abs(b.extra))} added by you)` : ''}${B.limit != null ? ` of ${fmt2(B.limit)}${b.over ? `, over by ${fmt2(b.spent - B.limit)}` : ''}` : ''}${b.cur ? ` · this ${word}` : ''}. Click to add or change an amount.`;
+    return `<button type="button" class="wkb ${cls}${b.cur ? ' cur' : ''}" data-wkadj="${esc(c)}" data-wks="${b.s}" title="${esc(tip)}"><small>${shortDay(b.s)}</small>${b.future ? '–' : fmt(b.spent)}${b.extra ? '<i class="wkadj">✎</i>' : ''}</button>`;
   }).join('')}</span>`;
+};
+// Click a block: add money spent that isn't in the bank (or take some off). Asks for the extra, not the total.
+const editSpendBlock = (c, s, m) => {
+  const B = spendBlocks(c, m), b = B && B.blocks.find(x => x.s === s); if (!b) return;
+  const v = prompt(`${c}, ${B.len === 7 ? 'week' : 'fortnight'} from ${shortDay(b.s)} to ${shortDay(b.e)}\nFrom the bank: ${fmt2(b.bank)}\n\nAdd spending that isn't in the bank (e.g. 180 paid on another card). Use -20 to take some off. Leave empty or 0 to clear.`, b.extra ? String(b.extra) : '');
+  if (v === null) return;
+  const n = round2(parseFloat(String(v).replace(/[$,\s]/g, '')) || 0);
+  plan.spendAdj = plan.spendAdj || {}; const o = plan.spendAdj[c] || (plan.spendAdj[c] = {});
+  if (n) o[s] = n; else { delete o[s]; if (!Object.keys(o).length) delete plan.spendAdj[c]; }
+  savePlan(); renderBudgets();
+  toast(n ? `${c}: ${fmt2(Math.abs(n))} ${n > 0 ? 'added to' : 'taken off'} the week from ${shortDay(s)}` : `${c}: the week from ${shortDay(s)} is back to the bank figure`);
 };
 const weekdaysIn = (m, day) => { let n = 0; for (let d = m + '-01'; d.startsWith(m); d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day) n++; return n; };
 // A category's target is asked for many times per screen: remembered per month's figures (`row` is a new object whenever the plan is re-worked) and bills list
@@ -4339,6 +4364,7 @@ function bankBalHTML() {
 
 let planSort = 0; // Budget tab: 0 = by group, 1 = Available biggest first, -1 = smallest first
 function renderBudgets() {
+  _spendDays = null; // spend-check blocks recount from the transactions
   const el = $('#tab-budgets');
   if (!txns.length) { el.innerHTML = `<div class="card empty">Load data first.</div>`; return; }
   if (!isMonth(plan.start) || !plan.cutoff) return renderPlanSetup(el);
@@ -4686,6 +4712,8 @@ function renderBudgets() {
     if (cov) { const c = cov.dataset.cover, need = -row.available[c]; openMove(m, P, {from: bestSource(P, row, need, c), to: c, amt: need}); return; }
     const add = e.target.closest('[data-addcat]');
     if (add) { openNewCat({group: add.dataset.addcat}); return; }
+    const wk = e.target.closest('[data-wkadj]');
+    if (wk) { editSpendBlock(wk.dataset.wkadj, wk.dataset.wks, m); return; }
     const pick = e.target.closest('[data-catpick]');
     if (pick) { openMonthTx(pick.dataset.catpick, m); return; } // a category's name: just its transactions for the month
     const pnl = e.target.closest('[data-catpanel]');
@@ -4942,7 +4970,7 @@ function bindCategory(c, m, P, row) {
   $('#scSave').onclick = () => {
     const every = $('#scEvery').value, lim = round2(parseFloat($('#scLim').value) || 0), from = $('#scFrom').value, extra = lim > 0 ? {limit: lim} : {};
     plan.spendCheck = plan.spendCheck || {};
-    if (every === 'off') { if ((plan.targets[c] || {}).type === 'weekly') plan.spendCheck[c] = {every}; else delete plan.spendCheck[c]; } // a weekly target would turn it back on
+    if (every === 'off') plan.spendCheck[c] = {every}; // kept, since every spending category is on unless turned off
     else plan.spendCheck[c] = every === 'weekly' ? {every, day: +$('#scDay').value, ...extra} : {every, ...(/^\d{4}-\d{2}-\d{2}$/.test(from) ? {from} : {}), ...extra};
     savePlan(); renderBudgets(); toast(every === 'off' ? `Spend check off for ${c}` : `${c}: showing spending each ${every === 'weekly' ? 'week' : 'fortnight'}`);
   };
