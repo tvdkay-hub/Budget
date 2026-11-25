@@ -143,6 +143,15 @@ table.plan .wcol { display: none; }
 table.plan.lite .wcol { display: none; }
 table.plan.lite .cmeta { display: flex; }
 .wprog { display: inline-flex; align-items: center; gap: 8px; }
+/* Spend check: one block per week/fortnight on a Budget row */
+.wkstrip { float: right; display: inline-flex; gap: 3px; margin-left: 12px; }
+.wkb { display: inline-flex; flex-direction: column; align-items: center; min-width: 54px; padding: 2px 5px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 1.25; }
+.wkb small { font-size: 10px; font-weight: 400; color: var(--text-muted); }
+.wkb.ok { background: color-mix(in srgb, var(--good) 22%, transparent); }
+.wkb.over { background: color-mix(in srgb, var(--bad) 26%, transparent); }
+.wkb.nolim { background: color-mix(in srgb, var(--text-muted) 15%, transparent); }
+.wkb.fut { border: 1px dashed var(--border); color: var(--text-muted); }
+.wkb.cur { box-shadow: inset 0 0 0 2px var(--ink); }
 .wprog .tbar { flex: 0 0 110px; }
 .wprog b { font-weight: 600; color: var(--text-secondary); }
 .wprog .ok { color: var(--good); }
@@ -632,6 +641,7 @@ body.printing #report .btn.primary { background: #2a78d6; color: #fff; }
   .fcscroll td:first-child { white-space: normal !important; }
   .pill { min-width: 0; padding: 2px 7px; }
   .cmeta, table.plan.lite .cmeta { display: block; } /* phones: bar on its own line, words underneath */
+  .wkstrip { float: none; display: flex; margin: 0 0 4px; } .wkb { flex: 1; min-width: 0; }
   .cmeta .tbar { display: block; width: 100%; margin: 6px 0 4px; }
   .cmeta .btn.sugg, .cmeta .btn.take { padding: 3px 8px; font-size: 12px; margin-top: 2px; }
   /* Bills: leave out "Per year" and "Category" */
@@ -3373,6 +3383,42 @@ function parseAmount(str, current) {
 // months with 5 of that weekday get 5 lots), 'topup' (top the category back up to an amount), 'byDate' (save up an amount
 // by a month, maybe repeating), and 'bills' (follows the category's bills on the Bills tab, changing by itself).
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Spend check: a strip of blocks on a Budget row, one per week (or fortnight) that starts in the month, each showing what was spent
+// in it: green within the limit, red over. plan.spendCheck[c] = {every: 'off'|'weekly'|'fortnightly', day, from, limit}.
+// A weekly target turns it on by itself (its amount and week-start day) until you change it. No limit set: the target sets it.
+const spendCheckOf = c => {
+  const s = (plan.spendCheck || {})[c], tg = plan.targets[c] || {};
+  if (s && s.every === 'off') return null;
+  const every = s ? s.every : tg.type === 'weekly' && tg.amount > 0 ? 'weekly' : null;
+  if (every !== 'weekly' && every !== 'fortnightly') return null;
+  const len = every === 'weekly' ? 7 : 14, from = s && /^\d{4}-\d{2}-\d{2}$/.test(s.from || '') ? s.from : null;
+  const day = s && Number.isInteger(s.day) ? s.day : Number.isInteger(tg.day) ? tg.day : SETTINGS.weekStartDay;
+  let limit = s && s.limit > 0 ? s.limit : null;
+  if (limit == null && tg.amount > 0) limit = tg.type === 'weekly' ? tg.amount * len / 7 : tg.type === 'monthly' ? tg.amount * 12 * len / 365.25 : null;
+  return {every, len, day, from, limit: limit != null ? round2(limit) : null, auto: s && s.limit > 0 ? false : limit != null};
+};
+const spendBlocks = (c, m) => {
+  const S = spendCheckOf(c); if (!S) return null;
+  const first = m + '-01', last = addDays(addMonths(m, 1) + '-01', -1), today = todayStr(), out = [];
+  let s;
+  if (S.len === 7) s = nextOnWeekday(first, S.day);
+  else { const a = S.from || nextOnWeekday(first, S.day); s = addDays(a, Math.ceil(daysBetween(a, first) / 14) * 14); }
+  for (; s <= last; s = addDays(s, S.len)) {
+    const e = addDays(s, S.len - 1), future = s > today;
+    const spent = future ? 0 : round2(-txns.filter(t => t.date >= s && t.date <= e && !isInternal(t)).reduce((q, t) => q + partsOf(t).reduce((r, p) => r + (p.cat === c ? p.amount : 0), 0), 0));
+    out.push({s, e, spent, future, cur: s <= today && today <= e, over: S.limit != null && spent > S.limit + 0.005});
+  }
+  return {...S, blocks: out};
+};
+const spendStripHTML = (c, m) => {
+  const B = spendBlocks(c, m); if (!B || !B.blocks.length) return '';
+  const word = B.len === 7 ? 'week' : 'fortnight';
+  return `<span class="wkstrip" aria-label="Spending each ${word}">${B.blocks.map(b => {
+    const cls = b.future ? 'fut' : b.over ? 'over' : B.limit == null ? 'nolim' : 'ok';
+    const tip = `${shortDay(b.s)} – ${shortDay(b.e)}: ${b.future ? 'not started yet' : `spent ${fmt2(b.spent)}`}${B.limit != null ? ` of ${fmt2(B.limit)}${b.over ? ` (over by ${fmt2(b.spent - B.limit)})` : ''}` : ''}${b.cur ? ` · this ${word}` : ''}`;
+    return `<span class="wkb ${cls}${b.cur ? ' cur' : ''}" title="${esc(tip)}"><small>${shortDay(b.s)}</small>${b.future ? '–' : fmt(b.spent)}</span>`;
+  }).join('')}</span>`;
+};
 const weekdaysIn = (m, day) => { let n = 0; for (let d = m + '-01'; d.startsWith(m); d = addDays(d, 1)) if (new Date(d + 'T00:00:00Z').getUTCDay() === day) n++; return n; };
 // A category's target is asked for many times per screen: remembered per month's figures (`row` is a new object whenever the plan is re-worked) and bills list
 // A "save by a date" target's due month. A repeating one (rates, rego) only moves on to its next date once a payment was actually made around the
@@ -4514,7 +4560,7 @@ function renderBudgets() {
     else if (av > 0.005) pill = 'has';
     const fl = flagOf(c);
     return `<tr class="cat${selCat === c ? ' sel' : ''}${fl ? ' flag-' + fl.cls : ''}" data-cat="${esc(c)}">
-      <td><button type="button" class="catname" data-catpick="${esc(c)}" title="Show this month's transactions">${esc(c)}</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${FAMILY && t && t.outside ? `${ofInfo() ? ` <span class="muted offnow" title="What's left to draw in the offset today">Offset: <b>${fmt2(ofInfo().now)}</b> available</span>` : ''} <button type="button" class="btn sm" data-offavail title="Type what your bank says is available to draw in the offset now">Update offset</button>` : ''}${paceBadge(c)}${fl ? ` <span class="rowflag ${fl.cls}" title="${esc(fl.tip)}">${esc(fl.label)}</span>` : ''}${metaOf(c, t)}</td>${colsOf(c, t)}
+      <td>${spendStripHTML(c, m)}<button type="button" class="catname" data-catpick="${esc(c)}" title="Show this month's transactions">${esc(c)}</button>${isHidden(c) ? ' <span class="tbadge" title="You hid this category, but something happened in it this month, so it\'s showing. It will hide itself again next month if nothing else happens.">hidden</span>' : ''}${isFixed(c) ? ' <span class="tbadge" title="Comes out regardless: left out of your spending figures">fixed</span>' : ''}${FAMILY && t && t.outside ? `${ofInfo() ? ` <span class="muted offnow" title="What's left to draw in the offset today">Offset: <b>${fmt2(ofInfo().now)}</b> available</span>` : ''} <button type="button" class="btn sm" data-offavail title="Type what your bank says is available to draw in the offset now">Update offset</button>` : ''}${paceBadge(c)}${fl ? ` <span class="rowflag ${fl.cls}" title="${esc(fl.tip)}">${esc(fl.label)}</span>` : ''}${metaOf(c, t)}</td>${colsOf(c, t)}
       <td class="num"><input type="text" inputmode="decimal" class="asg" data-asg="${esc(c)}" value="${row.assigned[c] ? row.assigned[c].toFixed(2) : ''}" placeholder="0.00" title="Type an amount. +50 adds, -20 takes away."></td>
       <td class="num">${fmt2(row.activity[c])}</td>
       <td class="num"><span class="pill ${pill}">${fmt2(av)}</span></td>
@@ -4821,6 +4867,16 @@ function categoryHTML(c, m, P, row, t) {
     ${t && t.parts && t.parts.length ? `<table style="margin-top:6px;font-size:13px">${t.parts.map(p => `<tr><td>${esc(p.name)}${p.email ? ' <span class="rbadge">bill received</span>' : ''}</td><td class="muted">${p.n != null ? `${p.n} × ${fmt2(p.each)} this month` : p.monthly != null ? 'monthly cost' : `due ${dateLabel(p.due)}${p.amount ? ' · ' + fmt2(p.amount) : ''}`}</td><td class="num">${fmt2(p.monthly != null ? p.monthly : p.need)}</td></tr>`).join('')}</table>` : ''}
     ${!tg.type && sugg ? `<div class="bill" style="margin-top:8px"><div class="row" style="justify-content:space-between;gap:8px"><span>Suggested: <b>${esc(targetText(sugg.t, m))}</b></span><button type="button" class="btn sm" id="tgUse">Use</button></div><div class="muted" style="font-size:12px">${esc(sugg.why)}</div></div>` : ''}
   </div>
+  ${(() => { const S = spendCheckOf(c), raw = (plan.spendCheck || {})[c] || {}, ev = S ? S.every : 'off', day = S ? S.day : SETTINGS.weekStartDay;
+    return `<div class="card"><h2>Spend check</h2>
+    <p class="muted" style="font-size:13px;margin:0 0 6px">Shows a block on the Budget row for each week or fortnight, with what you spent in it: green within the limit, red over.</p>
+    <div style="display:grid;gap:8px">
+      <label>How often <select id="scEvery">${[['off', 'Off'], ['weekly', 'Weekly'], ['fortnightly', 'Fortnightly']].map(([v, l]) => `<option value="${v}"${ev === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label id="scDayWrap">Week starts on <select id="scDay">${WEEKDAYS.map((d, i) => `<option value="${i}"${day === i ? ' selected' : ''}>${d}</option>`).join('')}</select></label>
+      <label id="scFromWrap">A fortnight starts on <input type="date" id="scFrom" value="${raw.from || weekStartOn(todayStr(), day)}"></label>
+      <label>Limit each <span id="scWord">${ev === 'fortnightly' ? 'fortnight' : 'week'}</span> $ <input type="number" id="scLim" min="0" step="0.01" style="width:110px" value="${raw.limit > 0 ? raw.limit : ''}" placeholder="${S && S.auto ? S.limit.toFixed(2) + ' (target)' : 'none'}"></label>
+      <div><button class="btn sm primary" id="scSave">Save spend check</button></div>
+    </div></div>`; })()}
   <div class="card"><h2>Priority</h2>
     <select id="prioSel" style="width:100%" aria-label="Priority">${priorityOptions(c)}</select>
     <p class="muted" style="font-size:13px;margin:6px 0 0">${PRIORITY_HELP[priorityOf(c)]} The funding plan fills bills first, then essentials, then nice-to-haves, then build-ups. Bills in any category always come first.</p>
@@ -4881,6 +4937,15 @@ function bindCategory(c, m, P, row) {
     savePlan(); renderBudgets();
   };
   if ($('#tgUse')) $('#tgUse').onclick = () => { useSuggested(c, m, P); renderBudgets(); };
+  const scShow = () => { const v = $('#scEvery').value; $('#scDayWrap').style.display = v === 'weekly' ? '' : 'none'; $('#scFromWrap').style.display = v === 'fortnightly' ? '' : 'none'; $('#scWord').textContent = v === 'fortnightly' ? 'fortnight' : 'week'; };
+  $('#scEvery').onchange = scShow; scShow();
+  $('#scSave').onclick = () => {
+    const every = $('#scEvery').value, lim = round2(parseFloat($('#scLim').value) || 0), from = $('#scFrom').value, extra = lim > 0 ? {limit: lim} : {};
+    plan.spendCheck = plan.spendCheck || {};
+    if (every === 'off') { if ((plan.targets[c] || {}).type === 'weekly') plan.spendCheck[c] = {every}; else delete plan.spendCheck[c]; } // a weekly target would turn it back on
+    else plan.spendCheck[c] = every === 'weekly' ? {every, day: +$('#scDay').value, ...extra} : {every, ...(/^\d{4}-\d{2}-\d{2}$/.test(from) ? {from} : {}), ...extra};
+    savePlan(); renderBudgets(); toast(every === 'off' ? `Spend check off for ${c}` : `${c}: showing spending each ${every === 'weekly' ? 'week' : 'fortnight'}`);
+  };
   const del = $('#insDel');
   if (del) del.onclick = () => openDelete(c);
   if ($('#insEdit')) $('#insEdit').onclick = () => openNewCat({edit: c});
