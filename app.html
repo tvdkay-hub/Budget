@@ -1694,6 +1694,7 @@ const nameList = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' 
 // Money moved between two of your accounts: the same amount goes out of one and into the other within 3 days, and one
 // side names the other account. The budget and totals leave these pairs out, so they don't count as money in and money out.
 let internal = new Map(); // transaction id -> the transaction on the other side
+let refunds = new Map(); // money back that cancels a payment (findRefunds in money.js): id -> the other side
 let cache = null;
 function compute() {
   KIND = Object.fromEntries(allCats());
@@ -1705,7 +1706,7 @@ function compute() {
       t.split = splitOf(t);
     }
   } finally { ruleMemo = null; }
-  findInternal();
+  findInternal(); findRefunds(); // money back takes its payment's category
   // month -> {income, spend (everything), cats:{cat:spend}, fixed (the part in fixed categories), habit (spend less fixed)}
   const byMonth = {};
   for (const t of txns) {
@@ -4413,6 +4414,15 @@ function typedCopies() {
   }
   return out;
 }
+// Transactions tab: the badge on a payment and the money back that cancels it (findRefunds)
+function backBadge(t) {
+  const o = refunds.get(t.id);
+  if (!o) return '';
+  const tip = t.amount > 0
+    ? `Money back for ${payeeName(o)} ${fmt2(o.amount)} on ${dateLabel(o.date)}, so it goes back into ${t.cat} instead of counting as income. Not right? Pick its category yourself.`
+    : `Paid back on ${dateLabel(o.date)} (${payeeName(o)} ${fmt2(o.amount)}), so the two cancel out in ${t.cat}.`;
+  return ` <span class="tbadge" title="${esc(tip)}">↩ ${t.amount > 0 ? 'money back' : 'refunded'}</span>`;
+}
 // Budget tab banner for typedCopies(), with a button that deletes the hand entries (Undo, or Deleted transactions, brings them back)
 function copiesLineHTML(list) {
   if (!list.length) return '';
@@ -5349,7 +5359,7 @@ function renderTransactions() {
         <td class="c-pick"><input type="checkbox" data-pick="${id}" aria-label="Select" ${on ? 'checked' : ''}></td>
         <td class="c-flag"><button class="flag${f ? '' : ' off'}" data-flag="${id}" title="${f ? flagName(f) + ' flag' : 'Add a flag'}" aria-label="${f ? flagName(f) + ' flag' : 'Add a flag'}">${flagSvg(f)}</button></td>
         <td class="c-date" style="white-space:nowrap">${t.date.split('-').reverse().join('/')}</td>${multi ? `<td class="muted c-acct" style="white-space:nowrap">${esc(acctName(acctOf(t)))}</td>` : ''}
-        <td class="c-payee"><div class="pname"><button type="button" class="pbtn" data-rename="${id}" title="The bank calls it: ${esc((t.party || t.desc || '').replace(/\s+/g, ' '))}. Click to rename.">${esc(payeeName(t))}</button>${moved}${t.manual ? ' <span class="tbadge" title="You added this by hand. When you load the bank\'s copy, it replaces this one and keeps your category and note.">added by hand</span>' : ''}${isNew ? (typeof unchecked[t.id] === 'string' ? ` <span class="badge" title="This was in ${esc(unchecked[t.id])}, which you deleted">Was ${esc(unchecked[t.id])}</span>` : ' <span class="badge">New</span>') : ''}${odd ? ` <span class="ubadge" title="${esc(odd.text)}">! ${odd.short}<button type="button" class="xbtn" data-uok="${id}" title="It's fine: stop pointing this one out" aria-label="It's fine">✕</button></span>` : ''}</div>${details ? `<div class="pdet" title="${esc(details)}">${esc(details)}</div>` : ''}</td>
+        <td class="c-payee"><div class="pname"><button type="button" class="pbtn" data-rename="${id}" title="The bank calls it: ${esc((t.party || t.desc || '').replace(/\s+/g, ' '))}. Click to rename.">${esc(payeeName(t))}</button>${moved}${backBadge(t)}${t.manual ? ' <span class="tbadge" title="You added this by hand. When you load the bank\'s copy, it replaces this one and keeps your category and note.">added by hand</span>' : ''}${isNew ? (typeof unchecked[t.id] === 'string' ? ` <span class="badge" title="This was in ${esc(unchecked[t.id])}, which you deleted">Was ${esc(unchecked[t.id])}</span>` : ' <span class="badge">New</span>') : ''}${odd ? ` <span class="ubadge" title="${esc(odd.text)}">! ${odd.short}<button type="button" class="xbtn" data-uok="${id}" title="It's fine: stop pointing this one out" aria-label="It's fine">✕</button></span>` : ''}</div>${details ? `<div class="pdet" title="${esc(details)}">${esc(details)}</div>` : ''}</td>
         <td class="c-note"><div class="notecell"><input type="text" class="txnote" data-note="${id}" value="${esc(note)}" title="${esc(note)}" placeholder="Add a note" aria-label="Note">${tg.length ? `<span class="tdots">${tg.map(g => `<span class="tdot" style="background:${tagColor(g, tcol)}" title="Tag: ${esc(g)}" role="img" aria-label="Tag: ${esc(g)}"></span>`).join('')}</span>` : ''}<button type="button" class="tagbtn${tg.length ? '' : ' off'}" data-tagadd="${id}" title="${tg.length ? 'Tags: ' + esc(tg.join(', ')) + '. Click to add or take off' : 'Add a tag'}" aria-label="Tags">${tagSvg}</button></div></td>
         <td class="num c-amt ${t.amount > 0 ? 'pos' : ''}">${fmt2(t.amount)}</td>${balOn ? balTd(bal.get(t.id)) : ''}
         <td class="c-cat" style="white-space:nowrap">${cat}</td>

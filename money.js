@@ -220,6 +220,28 @@ function findInternal() {
   }
 }
 
+// Money back that cancels a payment: a card check at the pump (−$250, then +$250 "CREDIT"), a reversed charge, a shop refund.
+// The money-in takes the payment's category, so the category nets out and it isn't counted as income (Ready to Assign, pay).
+// Same account and amount to the cent; the money-in on the day or after: up to 30 days from the same payee, or 7 days when the
+// bank only calls it CREDIT / REVERSAL / REFUND / RELEASE. Only money-ins the app sorted as income, and not if you chose its category.
+// refunds: id -> the other side (both ways). Run after findInternal(), with categories set.
+const isBankCredit = t => /^(credit|reversal|reversed|refund|release|returned)\b/i.test((t.party || '').trim());
+function findRefunds() {
+  refunds = new Map();
+  const start = s => (s || '').toLowerCase().replace(/^(?:to|from|frm)\s+/, '').replace(/[^a-z0-9]/g, '').slice(0, 5);
+  const outs = new Map();
+  for (const t of txns) if (t.amount < 0 && !t.split && !isInternal(t) && KIND[t.cat] === 'expense') { const k = acctOf(t) + '|' + (-t.amount).toFixed(2); (outs.get(k) || outs.set(k, []).get(k)).push(t); }
+  if (!outs.size) return;
+  const ins = txns.filter(t => t.amount > 0 && !overrides[t.id] && !t.split && !isInternal(t) && KIND[t.cat] === 'income').sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  for (const r of ins) {
+    const list = outs.get(acctOf(r) + '|' + r.amount.toFixed(2));
+    if (!list) continue;
+    const same = o => start(o.party).length >= 3 && start(o.party) === start(r.party), gap = o => daysBetween(o.date, r.date), bank = isBankCredit(r);
+    const o = list.filter(o => !refunds.has(o.id) && o.date <= r.date && gap(o) <= (same(o) ? 30 : 7) && (same(o) || bank)).sort((x, y) => gap(x) - gap(y))[0];
+    if (o) { refunds.set(r.id, o); refunds.set(o.id, r); r.cat = o.cat; }
+  }
+}
+
 // ---------- Zero-based budget (YNAB-style) ----------
 // Money that comes into the account lands in "Ready to Assign". You give every dollar a job by
 // assigning it to categories. For each category: Available = left over from last month + assigned + activity.
