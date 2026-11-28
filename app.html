@@ -499,6 +499,8 @@ label.btn:hover { background: #232b37; border-color: #364052; }
 /* Load data tab: everyday cards on the left, set-up-once cards on the right */
 .datagrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 900px) { .datagrid { grid-template-columns: 1fr; gap: 0; } }
+/* Folding headings: .shut hides everything after the heading in its box */
+.foldh{cursor:pointer}.foldh.shut~*{display:none!important}
 /* Bills tab: the forecast chart and what's coming up, side by side on wide screens */
 .fcgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
 .fcscroll { max-height: 430px; overflow: auto; }
@@ -2903,7 +2905,7 @@ function soonHTML(m, P, f) {
   const status = e => e.amount > 0 ? '<span class="muted">money in</span>' : coverText(e.cover, e.cat, true);
   const funded = e => e.cover && e.cover.have > 0.005 ? `${fmt2(e.cover.have)} of ${fmt2(e.cover.of)}` : '';
   return `<div class="grid2" style="grid-template-columns:1fr">
-    <div class="card"><h2>Coming up in the next 2 weeks</h2>
+    <div class="card">${foldH('soon', 'Coming up in the next 2 weeks')}
       ${soon.length ? `<table><thead><tr class="muted" style="font-size:12px;text-align:left"><th>Date</th><th>What</th><th class="num">Amount</th><th class="num">Funded so far</th><th class="num">Status</th></tr></thead>${soon.map(e => `<tr${e.bkey ? ` class="billrow" data-bill="${esc(e.bkey)}" title="See or change this"` : ''}><td style="white-space:nowrap">${shortDay(e.due)}</td><td>${esc(e.name)}</td><td class="num ${e.amount > 0 ? 'pos' : ''}">${fmt2(e.amount)}</td><td class="num muted" style="font-size:13px">${funded(e)}</td><td class="num cstat" style="font-size:13px">${status(e)}</td></tr>`).join('')}</table>`
         : '<p class="muted">Nothing due in the next 2 weeks.</p>'}
       ${soon.some(e => e.cover && e.cover.state === 'short') ? `<p style="font-size:13px;margin:8px 0 0"><span style="color:var(--warn)">!</span> Some bills come out before there's money for them. <button type="button" class="linkbtn" data-gotab="budgets">Look at the Budget tab</button></p>`
@@ -5231,10 +5233,14 @@ function navBadge() {
 }
 
 let futOpen = localStorage.getItem('budget-show-upcoming') === '1'; // Transactions: show the payments coming up in the next month? (this device only)
-document.addEventListener('click', e => { // fold or unfold "Coming up in the next 2 weeks"
-  const h = e.target.closest('[data-soonfold]'); if (!h) return;
-  const body = h.parentElement.querySelector('[data-soonbody]'), shut = !body.hidden;
-  body.hidden = shut; localStorage.setItem('budget-hide-soon', shut ? '1' : '0');
+// A heading that folds away everything under it in its box; remembered per device. Used for the "coming up" lists.
+function foldH(key, text) {
+  const shut = localStorage.getItem('budget-fold-' + key) === '1';
+  return `<h2 class="foldh${shut ? ' shut' : ''}" data-fold="${key}" title="Click to ${shut ? 'show' : 'hide'} this list"><span class="foldarrow">${shut ? '▸' : '▾'}</span> ${text}</h2>`;
+}
+document.addEventListener('click', e => {
+  const h = e.target.closest('[data-fold]'); if (!h) return;
+  const shut = h.classList.toggle('shut'); localStorage.setItem('budget-fold-' + h.dataset.fold, shut ? '1' : '0');
   h.querySelector('.foldarrow').textContent = shut ? '▸' : '▾'; h.title = `Click to ${shut ? 'show' : 'hide'} this list`;
 });
 document.addEventListener('click', e => { // "Enter now" on a coming-up payment
@@ -6184,16 +6190,13 @@ function billsHTML(m, row, days = 30) {
       <div class="muted" style="font-size:12px">${dayLabel(b.next)} (${when(b.next)}) · ${b.rhythm === 'once' ? 'just once' : b.rhythm}${b.cat ? ' · ' + esc(b.cat) : ''}${b.email ? ' · from your email' : b.manual ? ' · added by you' : ''}${status}</div></div>`;
   }).join('');
   const span = days === 14 ? 'the next 2 weeks' : `the next ${days} days`;
-  const fold = days === 14, shut = fold && localStorage.getItem('budget-hide-soon') === '1'; // the Budget tab's card can be folded away (this device only)
-  return `<div class="card" id="billsCard"><h2${fold ? ` data-soonfold style="cursor:pointer" title="Click to ${shut ? 'show' : 'hide'} this list"` : ''}>${fold ? `<span class="foldarrow">${shut ? '▸' : '▾'}</span> ` : ''}${days === 14 ? 'Coming up in the next 2 weeks' : 'Upcoming bills'}</h2>
-    <div${shut ? ' hidden' : ''} data-soonbody>
+  return `<div class="card" id="billsCard">${days === 14 ? foldH('soon', 'Coming up in the next 2 weeks') : '<h2>Upcoming bills</h2>'}
     <p class="muted" style="margin-top:0">Regular payments due in ${span}, worked out from your past transactions.${cover ? " Each is checked against its category, then Ready to Assign, then pay that comes in before it's due." : ''}</p>
     ${emailBillsHTML()}
     ${items || '<p class="muted">None due.</p>'}
     ${bills.length ? kv('Total due', fmt2(bills.reduce((s, b) => s + b.amount, 0))) : ''}
     ${ins.length ? `<p class="muted" style="margin:10px 0 0">Money expected in: ${ins.map(b => `${esc(b.name)} ${b.varies ? 'about ' : ''}${fmt2(b.amount)} on ${dayLabel(b.next)}`).join('; ')}.</p>` : ''}
     <div class="billbtns"><button type="button" class="btn sm" data-billadd>+ Add a bill</button><button type="button" class="btn sm" data-billtab>All bills and the forecast</button></div>
-    </div>
   </div>`;
 }
 
@@ -6334,7 +6337,7 @@ function billsHomeHTML(bills) {
 function dueSoonHTML(bills) {
   const today = todayStr(), list = bills.filter(b => !b.done && b.out && b.next <= addDays(today, 14)).sort((a, b) => a.next < b.next ? -1 : 1);
   const when = d => { const n = daysBetween(today, d); return n < 0 ? `${-n} day${n === -1 ? '' : 's'} late` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`; };
-  return `<h2>Due in the next 2 weeks</h2>` + (list.length ? list.map(b => `<div class="bill billrow" data-bill="${esc(b.key)}" title="See or change this bill"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(b.name)}</b><span class="row" style="gap:6px"><b>${b.varies ? 'about ' : ''}${fmt2(b.amount)}</b>${enterBtn(b.key)}</span></div>
+  return foldH('due', 'Due in the next 2 weeks') + (list.length ? list.map(b => `<div class="bill billrow" data-bill="${esc(b.key)}" title="See or change this bill"><div class="row" style="justify-content:space-between;gap:8px"><b>${esc(b.name)}</b><span class="row" style="gap:6px"><b>${b.varies ? 'about ' : ''}${fmt2(b.amount)}</b>${enterBtn(b.key)}</span></div>
       <div class="muted" style="font-size:13px">${dayLabel(b.next)} · ${when(b.next)}</div></div>`).join('') + kv('Total due', fmt2(list.reduce((s, b) => s + b.amount, 0))) : '<p class="muted">Nothing is due in the next 2 weeks.</p>');
 }
 // New bills your Gmail script found, waiting for you to add or ignore (not ones already paid, long past, or already added)
@@ -6541,7 +6544,7 @@ function forecastHTML(bills) {
   }
   // Wide screens: the chart on the left, the list beside it (scrolling in its own box). Narrow screens: one under the other.
   return `<div class="fcgrid"><div>${h}</div>
-    <div><h2>What's coming up (${f.events.length})</h2>
+    <div>${foldH('fclist', `What's coming up (${f.events.length})`)}
     <label class="muted" style="display:block;font-size:13px;margin:-4px 0 8px" title="Off: just your pay and bills. On: also takes off a typical day's groceries, fuel and so on, so the balance is closer to real life."><input type="checkbox" id="fcDaily" ${fcEveryday ? 'checked' : ''}> Include everyday spending like groceries and fuel (about ${fmt(f.typical)} a week)</label>
     <div class="fcscroll"><table>
     <thead><tr><th>Due</th><th>What</th><th class="num">Amount</th><th class="num fcbalc">Balance that day</th></tr></thead>
