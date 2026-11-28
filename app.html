@@ -5231,6 +5231,12 @@ function navBadge() {
 }
 
 let futOpen = localStorage.getItem('budget-show-upcoming') === '1'; // Transactions: show the payments coming up in the next month? (this device only)
+document.addEventListener('click', e => { // "Enter now" on a coming-up payment
+  const f = e.target.closest('[data-futenter]'); if (!f) return;
+  const bill = allBills().find(x => x.key === f.dataset.futenter); if (!bill) return;
+  const pre = enterNowPre(bill), amt = parseFloat(f.dataset.amt); if (amt > 0) pre.amount = amt; // the amount expected on that day
+  openAddTx(pre);
+});
 document.addEventListener('click', e => { if (e.target.closest('[data-futtoggle]')) { futOpen = !futOpen; localStorage.setItem('budget-show-upcoming', futOpen ? '1' : ''); renderTransactions(); } });
 function renderTransactions() {
   const el = $('#tab-transactions');
@@ -5327,7 +5333,7 @@ function renderTransactions() {
     const balTd = v => `<td class="num c-bal"${v < 0 ? ' style="color:var(--bad)"' : ''}>${v == null ? '' : fmt2(v)}</td>`;
     const futRow = e => `<tr class="future k-${e.kind}"><td class="c-pick"></td><td class="c-flag"></td><td class="c-date" style="white-space:nowrap">${e.date.split('-').reverse().join('/')}</td>${multi ? '<td class="c-acct"></td>' : ''}
       <td class="c-payee"><div class="pname">${esc(e.name)} ${futBadge[e.kind]}${e.outside ? ' <span class="tbadge" title="Paid with money from outside this budget (like your offset), so your balance stays the same">paid from outside</span>' : ''}${e.due < e.date ? ` <span class="tbadge" title="Due ${dateLabel(e.due)}, but not in your loaded transactions yet">due ${e.due.split('-').reverse().slice(0, 2).join('/')}</span>` : ''}</div></td>
-      <td class="c-note"></td><td class="num amt c-amt ${e.amount > 0 ? 'pos' : ''}">${fmt2(e.amount)}</td>${balTd(e.bal)}<td class="c-cat">${e.cat ? esc(e.cat) : ''}</td><td class="c-ok"></td></tr>`;
+      <td class="c-note">${e.whatif ? '' : `<button type="button" class="btn sm" data-futenter="${esc(e.bkey)}" data-amt="${Math.abs(e.amount)}" title="It came out already? Add it as a transaction now, without waiting for the bank file or the due date">Enter now</button>`}</td><td class="num amt c-amt ${e.amount > 0 ? 'pos' : ''}">${fmt2(e.amount)}</td>${balTd(e.bal)}<td class="c-cat">${e.cat ? esc(e.cat) : ''}</td><td class="c-ok"></td></tr>`;
     const legend = `${futBadge.bill} the real bill, from your email &nbsp;${futBadge.fixed} a set amount &nbsp;${futBadge.estimate} worked out from past payments. Everyday spending like groceries isn't included.`;
     // Folded into one line unless you open it (remembered on this device)
     const lastFut = fut.reduce((a, e) => !a || e.date >= a.date ? e : a, null);
