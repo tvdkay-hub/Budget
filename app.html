@@ -5231,6 +5231,12 @@ function navBadge() {
 }
 
 let futOpen = localStorage.getItem('budget-show-upcoming') === '1'; // Transactions: show the payments coming up in the next month? (this device only)
+document.addEventListener('click', e => { // fold or unfold "Coming up in the next 2 weeks"
+  const h = e.target.closest('[data-soonfold]'); if (!h) return;
+  const body = h.parentElement.querySelector('[data-soonbody]'), shut = !body.hidden;
+  body.hidden = shut; localStorage.setItem('budget-hide-soon', shut ? '1' : '0');
+  h.querySelector('.foldarrow').textContent = shut ? '▸' : '▾'; h.title = `Click to ${shut ? 'show' : 'hide'} this list`;
+});
 document.addEventListener('click', e => { // "Enter now" on a coming-up payment
   const f = e.target.closest('[data-futenter]'); if (!f) return;
   const bill = allBills().find(x => x.key === f.dataset.futenter); if (!bill) return;
@@ -6178,13 +6184,16 @@ function billsHTML(m, row, days = 30) {
       <div class="muted" style="font-size:12px">${dayLabel(b.next)} (${when(b.next)}) · ${b.rhythm === 'once' ? 'just once' : b.rhythm}${b.cat ? ' · ' + esc(b.cat) : ''}${b.email ? ' · from your email' : b.manual ? ' · added by you' : ''}${status}</div></div>`;
   }).join('');
   const span = days === 14 ? 'the next 2 weeks' : `the next ${days} days`;
-  return `<div class="card" id="billsCard"><h2>${days === 14 ? 'Coming up in the next 2 weeks' : 'Upcoming bills'}</h2>
+  const fold = days === 14, shut = fold && localStorage.getItem('budget-hide-soon') === '1'; // the Budget tab's card can be folded away (this device only)
+  return `<div class="card" id="billsCard"><h2${fold ? ` data-soonfold style="cursor:pointer" title="Click to ${shut ? 'show' : 'hide'} this list"` : ''}>${fold ? `<span class="foldarrow">${shut ? '▸' : '▾'}</span> ` : ''}${days === 14 ? 'Coming up in the next 2 weeks' : 'Upcoming bills'}</h2>
+    <div${shut ? ' hidden' : ''} data-soonbody>
     <p class="muted" style="margin-top:0">Regular payments due in ${span}, worked out from your past transactions.${cover ? " Each is checked against its category, then Ready to Assign, then pay that comes in before it's due." : ''}</p>
     ${emailBillsHTML()}
     ${items || '<p class="muted">None due.</p>'}
     ${bills.length ? kv('Total due', fmt2(bills.reduce((s, b) => s + b.amount, 0))) : ''}
     ${ins.length ? `<p class="muted" style="margin:10px 0 0">Money expected in: ${ins.map(b => `${esc(b.name)} ${b.varies ? 'about ' : ''}${fmt2(b.amount)} on ${dayLabel(b.next)}`).join('; ')}.</p>` : ''}
     <div class="billbtns"><button type="button" class="btn sm" data-billadd>+ Add a bill</button><button type="button" class="btn sm" data-billtab>All bills and the forecast</button></div>
+    </div>
   </div>`;
 }
 
