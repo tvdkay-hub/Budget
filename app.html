@@ -1548,8 +1548,13 @@ const SHOT_AMT = /(^|\s)([+\-−–—]?)\s*[$S§]?\s?(\d{1,3}(?:,\d{3})+|\d+)\s
 const SHOT_NOT_TX = /\b(balance|available|overdrawn|limit|funds|total|due|minimum)\b/i;
 // Which of your accounts a screenshot is of: the one named highest up (the header), so "To Joint Spending" further down a
 // Spending screenshot doesn't pick Joint Spending. Where one line names two ("Joint Spending" holds "Spending"), the longer name wins.
+// Only the header counts: the lines above the first date heading or transaction amount (the balance line doesn't end it),
+// so a "Mastercard" payment in the Spending account's list doesn't make it the card's screenshot
 function shotAcctFrom(lines, list) {
-  for (const l of lines.slice().sort((a, b) => a.y0 - b.y0)) {
+  const sorted = lines.slice().sort((a, b) => a.y0 - b.y0);
+  const end = sorted.findIndex(l => shotDateHeading(l.text) || (SHOT_AMT.test(l.text) && !SHOT_NOT_TX.test(l.text)));
+  lines = end < 0 ? sorted : sorted.slice(0, end);
+  for (const l of lines) {
     const low = l.text.toLowerCase(), a = list.filter(a => a.name && low.includes(a.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
     if (a) return a;
   }
@@ -3329,13 +3334,16 @@ function dataChecks() {
   const groups = {};
   for (const t of txns) if (t.date >= from12) { const k = [t.date, acctOf(t), t.amount.toFixed(2), payeeName(t).toLowerCase()].join('|'); (groups[k] = groups[k] || []).push(t); }
   const rawOf = t => [t.party, t.desc, t.ref, t.part, t.code].join('|'), dupes = Object.values(groups).filter(g => g.length > 1 && !g.some(t => t.manual) && new Set(g.map(rawOf)).size < g.length); // the bank's own reference differs for real repeats (like two swimming debits)
-  add('Every dollar counted once', badSplits.length || monthsOff.length ? 'warn' : dupes.length ? 'info' : 'good',
+  const copies = typedCopies(); // hand entries the bank lists on another account
+  add('Every dollar counted once', badSplits.length || monthsOff.length || copies.length ? 'warn' : dupes.length ? 'info' : 'good',
     (badSplits.length ? `${badSplits.length} ${plural(badSplits.length, "split doesn't add up to its transaction, so it's", "splits don't add up to their transactions, so they're")} counted unsplit. ` : '')
     + (monthsOff.length ? `${monthsOff.length} ${plural(monthsOff.length, "month's totals don't", "months' totals don't")} match the bank. ` : '')
     + (!badSplits.length && !monthsOff.length ? `Splits add up, and every month's totals match the bank's (last ${nMonths} months). ` : '')
+    + (copies.length ? `${copies.length} ${plural(copies.length, 'entry you added by hand is', 'entries you added by hand are')} also in the bank data on another account, so counted twice: remove them on the Budget tab. ` : '')
     + (dupes.length ? `${dupes.length} possible double ${plural(dupes.length, 'import', 'imports')} to look at.` : 'No double imports found.'),
     li(badSplits.map(t => `Split: ${dateLabel(t.date)} ${esc(payeeName(t))} ${fmt2(t.amount)} (parts add up to ${fmt2(splits[t.id].reduce((s, p) => s + p.amount, 0))}) — ${txLink(t.date, 'see it')}`))
     + li(monthsOff)
+    + li(copies.map(({t, bank}) => `Added by hand on ${esc(acctName(acctOf(t)))}: ${dateLabel(t.date)} ${esc(payeeName(t))} ${fmt2(t.amount)} (the bank has it on ${esc(acctName(acctOf(bank)))}) — ${txLink(t.date, 'see it')}`))
     + (dupes.length ? `<p style="margin:6px 0 0">Same day, account, payee and amount, and the bank's details are identical too. These can still be real (like two drinks at a bar), so check them against your bank:</p>`
       + li(dupes.slice(0, 15).map(g => `${dateLabel(g[0].date)} ${esc(payeeName(g[0]))} ${fmt2(g[0].amount)} × ${g.length} — ${txLink(g[0].date, 'see them')}`))
       + moreLine(dupes.length, 15) : ''));
@@ -4386,10 +4394,44 @@ function setupTiles() {
 function prow(label, value, tone = '') { return `<span class="prow${tone ? ' ' + tone : ''}"><span>${label}</span><span>${value}</span></span>`; }
 // Balance safeguards: an account's newest bank row, the last figure typed in from the bank app (plan.acctRec[id] = {date, balance}), and data older than the other accounts'
 function acctNewest(id) { let m = ''; for (const t of txns) if (acctOf(t) === id && !t.manual && t.date > m) m = t.date; return m; }
+// Transactions you added by hand that the bank lists on ANOTHER of your accounts (e.g. screenshots of Spending added to the card),
+// so they count twice: the bank's copy only replaces a hand entry on its own account. A match is the same amount to the cent on a
+// different account, 3 days before to 10 days after, and either the payee starts the same way or the entry's own account's bank data
+// already covers that day (so the bank would have listed it there). Each bank row backs one entry. [{t, bank}]
+function typedCopies() {
+  if (acctList().length < 2) return [];
+  const start = s => (s || '').toLowerCase().replace(/^(?:to|from|frm)\s+/, '').replace(/[^a-z0-9]/g, '').slice(0, 5);
+  const ids = new Set(txns.map(t => t.id)), hands = txns.filter(t => t.manual && !(t.pair && ids.has(t.pair))); // a hand transfer's two sides are left alone
+  if (!hands.length) return [];
+  const byAmt = new Map(), newest = {}, used = new Set(), out = [];
+  for (const t of txns) if (!t.manual) { const k = t.amount.toFixed(2), a = acctOf(t); (byAmt.get(k) || byAmt.set(k, []).get(k)).push(t); if (!newest[a] || t.date > newest[a]) newest[a] = t.date; }
+  for (const h of hands.sort((a, b) => a.date < b.date ? -1 : 1)) {
+    const a = acctOf(h), covered = (newest[a] || '') >= h.date;
+    const b = (byAmt.get(h.amount.toFixed(2)) || []).filter(t => acctOf(t) !== a && !used.has(t.id) && t.date >= addDays(h.date, -3) && t.date <= addDays(h.date, 10)
+      && (covered || (start(t.party).length >= 3 && start(t.party) === start(h.party)))).sort((x, y) => Math.abs(daysBetween(h.date, x.date)) - Math.abs(daysBetween(h.date, y.date)))[0];
+    if (b) { used.add(b.id); out.push({t: h, bank: b}); }
+  }
+  return out;
+}
+// Budget tab banner for typedCopies(), with a button that deletes the hand entries (Undo, or Deleted transactions, brings them back)
+function copiesLineHTML(list) {
+  if (!list.length) return '';
+  const n = list.length, sum = s => round2(list.reduce((a, x) => a + (Math.sign(x.t.amount) === s ? x.t.amount : 0), 0));
+  const inn = sum(1), out = -sum(-1), totals = [inn > 0.005 ? `${fmt2(inn)} in` : '', out > 0.005 ? `${fmt2(out)} out` : ''].filter(Boolean).join(', ');
+  const rows = list.map(({t, bank}) => `<li>${shortDay(t.date)} · ${esc(acctName(acctOf(t)))}: ${esc(payeeName(t))} ${fmt2(t.amount)} <span class="muted">(the bank has it on ${esc(acctName(acctOf(bank)))}, ${shortDay(bank.date)})</span></li>`).join('');
+  return `<div class="callout over" id="copiesLine"><span class="ctext"><b>! ${n} ${n === 1 ? 'entry you added by hand is' : 'entries you added by hand are'} also in your bank data, on another account,</b> so ${n === 1 ? "it's" : "they're"} counted twice (${totals}). ${n === 1 ? 'It was' : 'They were'} probably added to the wrong account.
+    <details><summary>Show ${n === 1 ? 'it' : 'them'}</summary><ul style="margin:6px 0 0;padding-left:18px">${rows}</ul></details></span>
+    <button class="btn sm primary" id="rmCopies" title="Deletes the entries you added by hand. The bank's own rows stay. Undo brings them back.">Remove the ${n === 1 ? 'copy' : n + ' copies'}</button></div>`;
+}
+async function removeCopies(list) {
+  if (!list.length || !await ask(`Remove ${list.length === 1 ? 'this entry' : `these ${list.length} entries`} you added by hand?\n\nThe bank's own ${list.length === 1 ? 'row stays' : 'rows stay'}. Undo, or "Deleted transactions" on the Load data tab, brings ${list.length === 1 ? 'it' : 'them'} back.`, 'Remove')) return;
+  deleteTxns(list.map(x => x.t.id));
+  toast(`Removed ${list.length === 1 ? '1 copy' : list.length + ' copies'}. Check Ready to Assign: it has changed`);
+}
 function acctGuard(a) {
   const out = {stale: null, rec: null}, list = acctList();
   if (!a || !list.length) return out;
-  if (list.length > 1) { const top = list.map(x => acctNewest(x.id)).reduce((m, x) => x > m ? x : m, ''), mine = acctNewest(a.id); if (mine && top && daysBetween(mine, top) > 3) out.stale = mine; }
+  if (list.length > 1) { const top = list.map(x => acctNewest(x.id)).reduce((m, x) => x > m ? x : m, ''), mine = acctNewest(a.id); if (mine && top && daysBetween(mine, top) > 3 && !(daysBetween(mine, top) > 90 && Math.abs(acctBalance(a.id) || 0) < 0.005)) out.stale = mine; } // not for an empty account you've stopped using
   const r = (plan.acctRec || {})[a.id];
   if (r) { const app = acctBalance(a.id, r.date); if (app != null) { const diff = round2(r.balance - app); out.rec = {date: r.date, bank: r.balance, app, diff, ok: Math.abs(diff) < 0.005}; } }
   return out;
@@ -4669,6 +4711,7 @@ function renderBudgets() {
         ? `That money's already spent, so ${row.rta - overBy > 0.005 ? `only ${fmt2(row.rta - overBy)} of Ready to Assign is really free` : 'none of Ready to Assign is really free'}.`
         : 'Press <b>Cover it</b> on the red rows to move money in from another category.'} <span class="muted">Anything not covered by the end of the month comes off next month's Ready to Assign.</span></span>
       ${row.rta > 0.005 ? `<button class="btn sm primary" id="coverAll" data-auto="paid" title="Assigns each red category exactly what's been spent in it">Cover what's been spent (${fmt2(overBy)})</button>` : ''}</div>` : '';
+  const copies = typedCopies(); // hand entries the bank lists on another account: counted twice
   const sumInCard = !selCat; // no category open: the budget table takes the full width (the summary cards sit below it)
   el.innerHTML = `${budgetTopHTML(m)}
     <div class="card rta ${st[0]} tone-${{todo: 'warn', over: 'bad'}[st[0]] || 'good'}">
@@ -4680,7 +4723,7 @@ function renderBudgets() {
           <div class="statpills"><span class="pillst">${st[1]} ${rtaShow > 0.005 ? 'Still needs a job' : rtaShow < -0.005 ? 'Assigned too much' : st[2]}</span>${cp && cp.unfunded > 0.005 ? `<span class="pillst neutral" style="color:var(--warn)" title="You've spent more on the card than you've set money aside for. Fund it over time; it isn't an error."><span>Card debt not yet funded</span><span>${fmt2(cp.unfunded)}</span></span>` : ''}${under > 0.005 ? `<span class="pillst neutral"><span>Targets need</span><span>${fmt2(under)}</span></span>` : ''}</div></div>
         ${bankBalHTML()}
       </div>
-      ${cardLineHTML()}${overLine}${rtaShow < -0.005 ? `<div class="callout over"><span class="ctext"><b>✕ You've given out ${fmt2(-rtaShow)} more than you have.</b> Take some back from a category (Move money), or it comes out of your next pay.</span></div>` : ''}${payWaitHTML(m)}
+      ${copiesLineHTML(copies)}${cardLineHTML()}${overLine}${rtaShow < -0.005 ? `<div class="callout over"><span class="ctext"><b>✕ You've given out ${fmt2(-rtaShow)} more than you have.</b> Take some back from a category (Move money), or it comes out of your next pay.</span></div>` : ''}${payWaitHTML(m)}
       ${planSumHTML(FP)}
       <div class="rta-extras autorow" title="Fill only uses what's in Ready to Assign. 'Same as / Spent / Average' only fill empty categories. Unassign sends unspent money back to Ready to Assign. Undo works on all of these.">
         <div class="autogrp"><span class="autolbl">Assign</span>
@@ -4745,6 +4788,7 @@ function renderBudgets() {
   });
   // every Auto-assign button (top card, including "Cover what's been spent"); works whether or not a category's panel is open
   el.querySelectorAll('.rta [data-auto]').forEach(b => b.onclick = () => { autoAssign(b.dataset.auto, m, P); renderBudgets(); });
+  const rc = el.querySelector('#rmCopies'); if (rc) rc.onclick = () => removeCopies(copies);
   const jo = el.querySelector('[data-jumpover]'); // the overspent banner: click to jump to the first red row
   if (jo) jo.addEventListener('click', e => {
     if (e.target.closest('button')) return;
